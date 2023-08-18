@@ -1,0 +1,29 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "DebugGeneratorNew",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${workspaceRoot}/GNUBenchmark_uint32_generator/build/generator_new.exe",
+			"args": [
+				"10",
+				"i32",
+				"nsort"
+			],
+			"cwd": "${workspaceRoot}/GNUBenchmark_uint32_generator/",
+			"stopAtEntry": false,
+			"externalConsole": false,
+			"MIMode": "gdb",
+			"miDebuggerPath": "gdb.exe",
+			"preLaunchTask": "C/C++: Build generator_new (Meson)",
+			"setupCommands": [
+				{
+					"description": "Enable pretty-printing for gdb",
+					"text": "-enable-pretty-printing",
+					"ignoreFailures": true
+				}
+			]
+		},
+	]
+}
