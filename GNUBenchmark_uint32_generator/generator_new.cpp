@@ -6,10 +6,7 @@
 #include <cfloat>
 #include <ctime>
 
-#include <variant>
 #include <vector>
-#include <stack>
-#include <deque>
 
 #include <random>
 #include <functional>
@@ -19,7 +16,6 @@
 #include <omp.h>
 
 using std::string;
-using std::variant;
 using std::vector;
 
 using std::unique_ptr;
@@ -129,6 +125,11 @@ void GenerateDataFromType(size_t count, DataType type, DataArrangeType arrangeme
 
 // ------------------------------------------------------------------------------
 
+#if defined(_WIN32) || defined(_WIN64) || defined(__CYGWIN__)
+#else
+	#define strcmpi strcasecmp
+#endif
+
 DataType GetDataTypeFromString(char* name) {
 #define CHECK(_chk, _type) if (strcmpi(name, _chk) == 0) return _type
 
@@ -165,36 +166,28 @@ class DataGenerator<int32_t> {
 	std::mt19937 mt;
 public:
 	DataGenerator() : mt((uint64_t)time(nullptr)) {}
-	int32_t operator()() {
-		return mt();
-	}
+	int32_t operator()() { return mt(); }
 };
 template<>
 class DataGenerator<uint32_t> {
 	std::mt19937 mt;
 public:
 	DataGenerator() : mt((uint64_t)time(nullptr)) {}
-	uint32_t operator()() {
-		return mt();
-	}
+	uint32_t operator()() { return mt(); }
 };
 template<>
 class DataGenerator<int64_t> {
 	std::mt19937_64 mt;
 public:
 	DataGenerator() : mt((uint64_t)time(nullptr)) {}
-	int64_t operator()() {
-		return mt();
-	}
+	int64_t operator()() { return mt(); }
 };
 template<>
 class DataGenerator<uint64_t> {
 	std::mt19937_64 mt;
 public:
 	DataGenerator() : mt((uint64_t)time(nullptr)) {}
-	uint64_t operator()() {
-		return mt();
-	}
+	uint64_t operator()() { return mt(); }
 };
 template<>
 class DataGenerator<double_t> {
@@ -203,9 +196,7 @@ class DataGenerator<double_t> {
 public:
 	DataGenerator() : mt((uint64_t)time(nullptr)),
 		dis(-10000.0, 10000.0) {}
-	double_t operator()() {
-		return dis(mt);
-	}
+	double_t operator()() { return dis(mt); }
 };
 
 template<typename T> void GenerateDataFromArrangement(size_t count, DataArrangeType arrangement) {
