@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <memory>
 #include <cfloat>
@@ -14,6 +15,8 @@
 #include <algorithm>
 
 #include <omp.h>
+
+#include "../Common/util.hpp"
 
 using std::string;
 using std::vector;
@@ -65,12 +68,16 @@ template<typename T> void GenerateNearlySorted(vector<T>& res);
 // Global rand
 std::mt19937_64 mt64((uint64_t)time(nullptr) * 2);
 
+string binaryOutput = "";
+
 // ------------------------------------------------------------------------------
 
 void PrintHelp() {
-	printf("Arguments: N [, DataType [, Arrangement]]\n");
+	printf("Arguments: N [, DataType [, Arrangement]] [option...]\n");
 	printf("    DataType can be:    i32, u32, i64, u64, f64\n");
 	printf("    Arrangement can be: random, reversed, fewunique, nsorted\n");
+	printf("    Option can be:\n");
+	printf("        -b file         Output as binary to file");
 }
 int main(int argc, char** argv) {
 	// Args: N [, DataType [, Arrangement]]
@@ -78,6 +85,17 @@ int main(int argc, char** argv) {
 	if (argc < 2) {
 		PrintHelp();
 		return 0;
+	}
+	
+	OptParse optParse(argc, argv);
+	if (optParse.OptionExists("-b")) {
+		if (auto file = optParse.GetOptionParam("-b")) {
+			binaryOutput = *file;
+		}
+		else {
+			printf("-b: File name is required\n");
+			return 0;
+		}
 	}
 	
 	uint64_t countData = std::strtoull(argv[1], nullptr, 10);
@@ -200,26 +218,55 @@ public:
 };
 
 template<typename T> void GenerateDataFromArrangement(size_t count, DataArrangeType arrangement) {
-	vector<T> data(count);
+	constexpr size_t MAX_PER_IT = 1000000;
 	
-	switch (arrangement) {
-	case DataArrangeType::Random:
-		GenerateRandom<T>(data);
-		break;
-	case DataArrangeType::Reversed:
-		GenerateReversed<T>(data);
-		break;
-	case DataArrangeType::FewUnique:
-		GenerateFewUnique<T>(data);
-		break;
-	case DataArrangeType::NearlySorted:
-		GenerateNearlySorted<T>(data);
-		break;
-	default: break;
+	auto _DoGenerateData = [&](std::function<void(const vector<T>&)> fnOutput) {
+		vector<T> data;
+		
+		size_t remain = count;
+		do {
+			size_t work = std::min(remain, MAX_PER_IT);
+			
+			data.resize(work);
+			
+			switch (arrangement) {
+			case DataArrangeType::Random:
+				GenerateRandom<T>(data);
+				break;
+			case DataArrangeType::Reversed:
+				GenerateReversed<T>(data);
+				break;
+			case DataArrangeType::FewUnique:
+				GenerateFewUnique<T>(data);
+				break;
+			case DataArrangeType::NearlySorted:
+				GenerateNearlySorted<T>(data);
+				break;
+			default: break;
+			}
+			
+			fnOutput(data);
+			
+			remain -= work;
+		} while (remain > 0);
+	};
+	
+	if (binaryOutput.empty()) {
+		_DoGenerateData([](const vector<T>& data) {
+			for (const T& i : data) {
+				printf("%s ", std::to_string(i).c_str());
+			}
+		});
 	}
-	
-	for (T& i : data) {
-		printf("%s ", std::to_string(i).c_str());
+	else {
+		std::ofstream fout(binaryOutput, std::ios::binary);
+		
+		_DoGenerateData([&fout](const vector<T>& data) {
+			fout.write((const char*)data.data(), sizeof(T) * data.size());
+		});
+		
+		fout.flush();
+		fout.close();
 	}
 }
 
