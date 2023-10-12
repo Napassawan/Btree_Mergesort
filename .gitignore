@@ -54,6 +54,9 @@ dkms.conf
 
 /**/.vs/
 
+Data/*.txt
+Data/*.bin
+
 *.stackdump
 *.out
 
