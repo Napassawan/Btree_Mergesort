@@ -14,10 +14,12 @@ if system == 'windows'
 	deps += compiler.find_library('ntdll')
 endif
 
+common = ['../Common/mygetopt.cpp']
+
 add_project_arguments('-g',
 	language : 'cpp')
 
 executable('msort', 
-	sources : ['main.cpp', 'timer.cpp'],
+	sources : common + ['main.cpp', 'timer.cpp'],
 	dependencies : deps)
 
