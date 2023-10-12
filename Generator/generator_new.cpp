@@ -264,7 +264,7 @@ template<typename T> void GenerateDataFromArrangement(size_t count, DataArrangeT
 	}
 	else {
 		std::ofstream fout(binaryOutput, std::ios::binary);
-		if (!file.is_open())
+		if (!fout.is_open())
 			throw string("Failed to open file for writing");
 		
 		_DoGenerateData([&fout](const vector<T>& data) {
