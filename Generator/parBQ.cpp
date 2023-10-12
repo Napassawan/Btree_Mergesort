@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <string.h>
-#include <alloca.h>
+#include <malloc.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
