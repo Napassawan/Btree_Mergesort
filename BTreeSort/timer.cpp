@@ -112,10 +112,13 @@ void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose) {
 		throw MyException("Timer not stopped yet");
 	
 	auto _Print = [&](int core, const CpuData& time) {
-		if (core >= 0)
-			out << "Core" << core << ":";
-		else
-			out << "Total:";
+		char tmp[256];
+		
+		if (core >= 0) {
+			sprintf(tmp, "Core%02d: ", core);
+			out << tmp;
+		}
+		else out << "Total:  ";
 		
 		if (!compact) {
 			out << "\n";
@@ -125,8 +128,7 @@ void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose) {
 			out << "    Idle time:   " << time.idle << "\n";
 		}
 		else {
-			char tmp[256];
-			sprintf(tmp, " (%" PRIu64 ", %" PRIu64 ", %" PRIu64 ", %" PRIu64 ")\n", 
+			sprintf(tmp, "(%10" PRIu64 ", %10" PRIu64 ", %10" PRIu64 ", %10" PRIu64 ")\n", 
 				time.total, time.user, time.sys, time.idle);
 			out << tmp;
 		}

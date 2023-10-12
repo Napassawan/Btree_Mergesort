@@ -15,6 +15,10 @@
 	//#define _WIN32_WINNT 0x0601
 	#include <windows.h>
 	#include <winternl.h>
+	
+	// minwindef.h has min/max macros which we do not want
+	#undef min
+	#undef max
 #else
 	#include <unistd.h>
 #endif
