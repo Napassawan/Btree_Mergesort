@@ -1,5 +1,3 @@
-#include <string.h>
-
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -14,6 +12,7 @@
 #include <execution>
 #include <algorithm>
 
+#include <string.h>
 #include <omp.h>
 
 #include "../Common/util.hpp"
@@ -80,21 +79,21 @@ void PrintHelp() {
 	printf("        -b file         Output as binary to file");
 }
 int main(int argc, char** argv) {
-	// Args: N [, DataType [, Arrangement]]
-	
 	if (argc < 2) {
 		PrintHelp();
 		return 0;
 	}
 	
-	OptParse optParse(argc, argv);
-	if (optParse.OptionExists("-b")) {
-		if (auto file = optParse.GetOptionParam("-b")) {
-			binaryOutput = *file;
-		}
-		else {
-			printf("-b: File name is required\n");
-			return 0;
+	{
+		OptParse optParse(argc, argv);
+		if (optParse.OptionExists("-b")) {
+			if (auto file = optParse.GetOptionParam("-b")) {
+				binaryOutput = *file;
+			}
+			else {
+				printf("-b: File name is required\n");
+				return -1;
+			}
 		}
 	}
 	
@@ -114,7 +113,12 @@ int main(int argc, char** argv) {
 		return 0;
 	}
 	
-	GenerateDataFromType(countData, typeDataGenerate, typeDataArrangement);
+	try {
+		GenerateDataFromType(countData, typeDataGenerate, typeDataArrangement);
+	}
+	catch (const string& e) {
+		printf("Fatal error-> %s", e.c_str());
+	}
 	
 	//printf("Done");
 	return 0;
@@ -150,14 +154,14 @@ void GenerateDataFromType(size_t count, DataType type, DataArrangeType arrangeme
 
 DataType GetDataTypeFromString(char* name) {
 #define CHECK(_chk, _type) if (strcmpi(name, _chk) == 0) return _type
-
+	
 	CHECK("i32", DataType::i32);
 	else CHECK("u32", DataType::u32);
 	else CHECK("i64", DataType::i64);
 	else CHECK("u64", DataType::u64);
 	else CHECK("f64", DataType::f64);
 	else CHECK("double", DataType::f64);
-
+	
 	return DataType::Invalid;
 
 #undef CHECK
@@ -254,12 +258,14 @@ template<typename T> void GenerateDataFromArrangement(size_t count, DataArrangeT
 	if (binaryOutput.empty()) {
 		_DoGenerateData([](const vector<T>& data) {
 			for (const T& i : data) {
-				printf("%s ", std::to_string(i).c_str());
+				std::cout << i << " ";
 			}
 		});
 	}
 	else {
 		std::ofstream fout(binaryOutput, std::ios::binary);
+		if (!file.is_open())
+			throw string("Failed to open file for writing");
 		
 		_DoGenerateData([&fout](const vector<T>& data) {
 			fout.write((const char*)data.data(), sizeof(T) * data.size());
