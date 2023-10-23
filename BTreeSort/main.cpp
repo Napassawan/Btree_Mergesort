@@ -8,9 +8,11 @@
 #include <parallel/algorithm>
 #include <omp.h>
 
-#include "../Common/mygetopt.hpp"
+#include "../Common/util.hpp"
+#include "../Common/reader.hpp"
 
 #include "timer.hpp"
+#include "sort.hpp"
 
 #ifdef WINDOWS
 	#pragma message("Compile mode: Windows")
@@ -25,32 +27,7 @@ using std::unique_ptr;
 
 // ------------------------------------------------------------------------------
 
-enum class DataType {
-	i32,
-	u32,
-	i64,
-	u64,
-	f64,
-	Invalid,
-};
-DataType GetDataTypeFromString(char* name);
-
-enum class SortType {
-	MultiwayMerge,
-	BalancedQuick,
-	BTreeMerge,
-	Invalid,
-};
-SortType GetSortTypeFromString(char* type);
-
-struct InFile {
-	string path;
-	bool binary;
-};
-
-// ------------------------------------------------------------------------------
-
-void Work(DataType type, SortType sort, const InFile& file);
+void Work(DataType type, SortType sort, const FileReader& file);
 
 // Static timer so I don't have to throw it across 73 functions
 PerformanceTimer timer;
@@ -82,7 +59,7 @@ int main(int argc, char** argv) {
 	bool bCompact = false;
 	bool bVerbose = false;
 	
-	InFile input;
+	FileReader input;
 	
 	{
 		// Start parsing after Mode arg
@@ -97,8 +74,7 @@ int main(int argc, char** argv) {
 		
 		if (optParse.OptionExists("-b")) {
 			if (auto opt = optParse.GetOptionParam("-b")) {
-				input.binary = true;
-				input.path = *opt;
+				input = FileReader(*opt, true);
 			}
 			else {
 				printf("-b: File name is required\n");
@@ -107,8 +83,7 @@ int main(int argc, char** argv) {
 		}
 		else if (optParse.OptionExists("-t")) {
 			if (auto opt = optParse.GetOptionParam("-t")) {
-				input.binary = false;
-				input.path = *opt;
+				input = FileReader(*opt, false);
 			}
 			else {
 				printf("-t: File name is required\n");
@@ -126,11 +101,8 @@ int main(int argc, char** argv) {
 	}
 	
 	try {
-		//timer.Start();
-		
 		Work(typeDataParse, typeSort, input);
 		
-		//timer.Stop();
 		timer.Report(std::cout, bCompact, bVerbose);
 	}
 	catch (const string& e) {
@@ -143,45 +115,11 @@ int main(int argc, char** argv) {
 
 // ------------------------------------------------------------------------------
 
-#ifndef WINDOWS
-	#define strcmpi strcasecmp
-#endif
-
-DataType GetDataTypeFromString(char* name) {
-#define CHECK(_chk, _type) if (strcmpi(name, _chk) == 0) return _type
-	
-	CHECK("i32", DataType::i32);
-	else CHECK("u32", DataType::u32);
-	else CHECK("i64", DataType::i64);
-	else CHECK("u64", DataType::u64);
-	else CHECK("f64", DataType::f64);
-	else CHECK("double", DataType::f64);
-	
-	return DataType::Invalid;
-
-#undef CHECK
-}
-
-SortType GetSortTypeFromString(char* type) {
-#define CHECK(_chk, _type) if (strcmpi(type, _chk) == 0) return _type
-	
-	CHECK("mw", SortType::MultiwayMerge);
-	else CHECK("bq", SortType::BalancedQuick);
-	else CHECK("bt", SortType::BTreeMerge);
-	
-	return SortType::Invalid;
-
-#undef CHECK
-}
-
-// ------------------------------------------------------------------------------
-
-template<typename T> void WorkGeneric(SortType sort, const InFile& file);
-template<typename T> void ReadDataFromFile(vector<T>& res, const InFile& file);
+template<typename T> void WorkGeneric(SortType sort, const FileReader& file);
 template<typename T> void PerformSort(SortType sort, vector<T>& res);
 template<typename T> void VerifySorted(vector<T>& data);
 
-void Work(DataType type, SortType sort, const InFile& file) {
+void Work(DataType type, SortType sort, const FileReader& file) {
 	switch (type) {
 	case DataType::i32:
 		WorkGeneric<int32_t>(sort, file);
@@ -196,15 +134,16 @@ void Work(DataType type, SortType sort, const InFile& file) {
 		WorkGeneric<uint64_t>(sort, file);
 		break;
 	case DataType::f64:
-		WorkGeneric<double_t>(sort, file);
+		WorkGeneric<double>(sort, file);
 		break;
 	default: break;
 	}
 }
-template<typename T> void WorkGeneric(SortType sort, const InFile& file) {
-	vector<T> data;
+template<typename T> void WorkGeneric(SortType sort, const FileReader& file) {
+	vector<T> data = file.ReadData<T>();
 	
-	ReadDataFromFile<T>(data, file);
+	printf("Read %zu data from file (%zu bytes)\n", 
+		data.size(), data.size() * sizeof(T));
 	
 	PerformSort(sort, data);
 	
@@ -217,60 +156,6 @@ template<typename T> void WorkGeneric(SortType sort, const InFile& file) {
 	printf("\n");
 }
 
-template<typename T> void ReadDataFromFile(vector<T>& res, const InFile& fileData) {
-	std::ifstream file(fileData.path, 
-		fileData.binary ? std::ios::binary : (std::ios::openmode)0);
-	if (!file.is_open())
-		throw string("Failed to open file for reading");
-	
-	file.seekg(0, std::ios::end);
-	size_t fileSize = file.tellg();
-	file.seekg(0, std::ios::beg);
-	
-	if (fileData.binary) {
-		if (fileSize % sizeof(T) != 0)
-			throw string("Wrong file size for data type");
-		
-		size_t dataCount = fileSize / sizeof(T);
-		res.resize(dataCount);
-		
-		// Buffered read into res
-		{
-			constexpr size_t MAX_PER_IT = 4096;
-			
-			size_t pos = 0;
-			while (true) {
-				file.read((char*)&res[pos], MAX_PER_IT * sizeof(T));
-				
-				size_t read = file.gcount();
-				if (read == 0)		// EOF reached
-					break;
-				
-				pos += read;
-			}
-		}
-	}
-	else {
-		// Use file exceptions instead of putting checks inside the read loop
-		file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
-		
-		try {
-			T value;
-			while (file >> value) {
-				res.push_back(value);
-			}
-		}
-		catch (const std::ifstream::failure& e) {
-			//throw (string("File read error: ") + e.what());
-		}
-	}
-	
-	printf("Read %zu data from file (%zu bytes)\n", 
-		res.size(), res.size() * sizeof(T));
-	
-	file.close();
-}
-
 template<typename T> void PerformSort(SortType sort, vector<T>& res) {
 	timer.Start();
 	
@@ -281,9 +166,10 @@ template<typename T> void PerformSort(SortType sort, vector<T>& res) {
 	case SortType::BalancedQuick:
 		__gnu_parallel::sort(res.begin(), res.end(), __gnu_parallel::balanced_quicksort_tag());
 		break;
-	case SortType::BTreeMerge:
+	case SortType::BTreeMerge: {
 		throw string("Not implemented");
 		break;
+	}
 	default: break;
 	}
 	

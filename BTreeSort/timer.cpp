@@ -128,7 +128,9 @@ void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose) {
 			out << "    Idle time:   " << time.idle << "\n";
 		}
 		else {
-			sprintf(tmp, "(%10" PRIu64 ", %10" PRIu64 ", %10" PRIu64 ", %10" PRIu64 ")\n", 
+			sprintf(tmp, 
+				"(%10" PRIu64 ", %10" PRIu64 ", %10" PRIu64 
+				", %10" PRIu64 ")\n", 
 				time.total, time.user, time.sys, time.idle);
 			out << tmp;
 		}

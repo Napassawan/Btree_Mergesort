@@ -30,27 +30,6 @@ constexpr const float Opt_NSorted_SwapPercentage = 0.05;		// 5%
 
 // ------------------------------------------------------------------------------
 
-enum class DataType {
-	i32,
-	u32,
-	i64,
-	u64,
-	f64,
-	Invalid,
-};
-DataType GetDataTypeFromString(char* name);
-
-enum class DataArrangeType {
-	Random,
-	Reversed,
-	FewUnique,
-	NearlySorted,
-	Invalid,
-};
-DataArrangeType GetDataArrangeTypeFromString(char* name);
-
-// ------------------------------------------------------------------------------
-
 void GenerateDataFromType(size_t count, DataType type, DataArrangeType arrangement);
 template<typename T> void GenerateDataFromArrangement(size_t count, DataArrangeType arrangement);
 
@@ -143,42 +122,6 @@ void GenerateDataFromType(size_t count, DataType type, DataArrangeType arrangeme
 		break;
 	default: break;
 	}
-}
-
-// ------------------------------------------------------------------------------
-
-#if defined(_WIN32) || defined(_WIN64) || defined(__CYGWIN__)
-#else
-	#define strcmpi strcasecmp
-#endif
-
-DataType GetDataTypeFromString(char* name) {
-#define CHECK(_chk, _type) if (strcmpi(name, _chk) == 0) return _type
-	
-	CHECK("i32", DataType::i32);
-	else CHECK("u32", DataType::u32);
-	else CHECK("i64", DataType::i64);
-	else CHECK("u64", DataType::u64);
-	else CHECK("f64", DataType::f64);
-	else CHECK("double", DataType::f64);
-	
-	return DataType::Invalid;
-
-#undef CHECK
-}
-DataArrangeType GetDataArrangeTypeFromString(char* name) {
-#define CHECK(_chk, _type) if (strcmpi(name, _chk) == 0) return _type
-
-	CHECK("random", DataArrangeType::Random);
-	else CHECK("reverse", DataArrangeType::Reversed);
-	else CHECK("reversed", DataArrangeType::Reversed);
-	else CHECK("fewunique", DataArrangeType::FewUnique);
-	else CHECK("nsort", DataArrangeType::NearlySorted);
-	else CHECK("nsorted", DataArrangeType::NearlySorted);
-	
-	return DataArrangeType::Invalid;
-
-#undef CHECK
 }
 
 // ------------------------------------------------------------------------------
