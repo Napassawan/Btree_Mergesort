@@ -56,6 +56,7 @@ int main(int argc, char** argv) {
 		return 0;
 	}
 	
+	bool bReport = false;
 	bool bCompact = false;
 	bool bVerbose = false;
 	
@@ -70,6 +71,7 @@ int main(int argc, char** argv) {
 				bCompact = strchr(opt->get().c_str(), 'c');
 				bVerbose = strchr(opt->get().c_str(), 'v');
 			}
+			bReport = true;
 		}
 		
 		if (optParse.OptionExists("-b")) {
@@ -103,7 +105,8 @@ int main(int argc, char** argv) {
 	try {
 		Work(typeDataParse, typeSort, input);
 		
-		timer.Report(std::cout, bCompact, bVerbose);
+		if (bReport)
+			timer.Report(std::cout, bCompact, bVerbose);
 	}
 	catch (const string& e) {
 		printf("Fatal error-> %s", e.c_str());
@@ -167,7 +170,12 @@ template<typename T> void PerformSort(SortType sort, vector<T>& res) {
 		__gnu_parallel::sort(res.begin(), res.end(), __gnu_parallel::balanced_quicksort_tag());
 		break;
 	case SortType::BTreeMerge: {
-		throw string("Not implemented");
+		//throw string("Not implemented");
+		
+		BTreeSort<typename vector<T>::iterator, std::less<T>> btreesort
+			(res.begin(), res.end(), std::less<T>());
+		btreesort.Sort();
+		
 		break;
 	}
 	default: break;

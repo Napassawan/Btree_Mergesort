@@ -9,6 +9,8 @@ system = build_machine.system()
 
 message('System is ' + system)
 
+incs = [include_directories('../External')]
+
 deps = [dependency('openmp')]
 if system == 'windows'
 	deps += compiler.find_library('ntdll')
@@ -21,5 +23,6 @@ add_project_arguments('-g',
 
 executable('msort', 
 	sources : common + ['main.cpp', 'timer.cpp', 'sort.cpp'],
+	include_directories: incs,
 	dependencies : deps)
 
