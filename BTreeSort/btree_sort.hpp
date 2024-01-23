@@ -26,16 +26,15 @@ class BTreeSort {
 		IterBucket() : IterBucket(-1, {}, {}) {}		// Why is C++ stupid?
 		IterBucket(int id, Iter begin, Iter end);
 	};
-	class TopIterBucket {	// Can't inherit from IterBucket for some reason
+	class TopIterBucket : public IterBucket {
 	public:
-		IterBucket ib;
 		size_t nDivisions;
 		size_t maxPerDivision;
 		std::vector<IterBucket> divisions;
 	public:
 		TopIterBucket(int id, Iter begin, Iter end, size_t nDivisions);
 	};
-	
+
 	class Slice {
 	public:
 		IterBucket* bucket;
@@ -67,6 +66,7 @@ public:
 	void Sort();
 private:
 	void _WorkBucket(TopIterBucket& bucket);
+	void _InsertionSortRange(Iter begin, Iter end);
 };
 
 // ------------------------------------------------------------------------------
@@ -82,14 +82,14 @@ DEF_BTreeSort IterBucket::IterBucket(int id, Iter begin, Iter end) {
 	size = std::distance(begin, end);
 }
 TEMPL inline
-DEF_BTreeSort TopIterBucket::TopIterBucket(int id, Iter begin, Iter end, size_t nDivisions) {
-	ib = IterBucket(id, begin, end);
-	
+DEF_BTreeSort TopIterBucket::TopIterBucket(int id, Iter begin, Iter end, size_t nDivisions)
+	: IterBucket(id, begin, end)
+{
 	this->nDivisions = nDivisions;
-	maxPerDivision = ib.size / nDivisions;
+	maxPerDivision = this->size / nDivisions;
 	if (maxPerDivision < 4) {
 		maxPerDivision = 4;
-		this->nDivisions = ib.size / maxPerDivision;
+		this->nDivisions = this->size / maxPerDivision;
 	}
 	
 	divisions.reserve(nDivisions);
@@ -101,7 +101,9 @@ DEF_BTreeSort BTreeSort(Iter begin, Iter end, Comparator comp) {
 	this->comp = comp;
 	
 	nCores = omp_get_num_procs();
-	
+	omp_set_dynamic(0);
+	omp_set_num_threads(nCores);
+
 	buckets.clear();
 	
 	omp_init_lock(&om_writeLock);
@@ -129,7 +131,8 @@ TEMPL void DEF_BTreeSort Sort() {
 			buckets.push_back(TopIterBucket(iCore, 
 				itrBegin + begin, itrBegin + end, N_SUB_BUCKETS));
 		}
-		
+
+#pragma omp parallel for
 		for (size_t i = 0; i < nCores; ++i) {
 			_WorkBucket(buckets[i]);
 		}
@@ -144,21 +147,23 @@ TEMPL void DEF_BTreeSort Sort() {
 		} */
 		
 		{
+			// TODO: Find a way to not create a whole new array of equal size
+			
 			std::vector<IterVal> newData;
 			newData.reserve(dataCount);
 			
 			// Copy slices to new vector in ascending order
 			for (const Slice& s : setSlices) {
-				newData.insert(newData.end(), 
-					s.bucket->begin, s.bucket->end);
+				newData.insert(newData.end(), s.bucket->begin, s.bucket->end);
 			}
-			
-			{
-				std::ofstream fout("tmp.txt");
-				for (auto& i : newData) {
-					fout << i << " ";
-				}
-				fout.close();
+
+#pragma omp parallel for
+			for (size_t iCore = 0; iCore < nCores; ++iCore) {
+				size_t begin = dataCount * iCore / nCores;
+				size_t end = dataCount * (iCore + 1) / nCores;
+				_InsertionSortRange(
+					newData.begin() + begin,
+					newData.begin() + end);
 			}
 			
 			for (size_t i = 0; i < dataCount; ++i) {
@@ -168,41 +173,58 @@ TEMPL void DEF_BTreeSort Sort() {
 	}
 }
 TEMPL void DEF_BTreeSort _WorkBucket(TopIterBucket& bucket) {
-	auto& itrBegin = bucket.ib.begin, &itrEnd = bucket.ib.end;
+	auto& itrBegin = bucket.begin, &itrEnd = bucket.end;
 	
 	// TODO: Replace with non-STD sort
-	std::sort(itrBegin, itrEnd, Comparator());
+	std::sort(itrBegin, itrEnd, comp);
 	
 	// Partition sub-divisions
 	// TODO: Maybe make division less naive
 	for (size_t iDiv = 0; iDiv < bucket.nDivisions; ++iDiv) {
-		size_t begin = bucket.ib.size * iDiv / bucket.nDivisions;
-		size_t end = bucket.ib.size * (iDiv + 1) / bucket.nDivisions;
+		size_t begin = bucket.size * iDiv / bucket.nDivisions;
+		size_t end = bucket.size * (iDiv + 1) / bucket.nDivisions;
 		
 		if (end - begin > 0) {
 			bucket.divisions.push_back(IterBucket(
-				bucket.ib.id * bucket.maxPerDivision + iDiv, 
+				bucket.id * bucket.maxPerDivision + iDiv, 
 				itrBegin + begin, itrBegin + end));
 		}
 	}
 	
 	{
-		//OmpLock lock(om_writeLock);	// Lock setSlices for writing
-		
-		/* std::string strDivs = StringJoin(bucket.divisions.begin(), bucket.divisions.end(),
-			", ", [](const IterBucket& b) { 
-					IterVal beg = *b.begin, end = *b.end;
-					IterVal mid = *(b.begin + b.size / 2);
-					return "[" + std::to_string(beg) + ", " 
-						+ std::to_string(mid) + ", " 
-						+ std::to_string(end) + "]";
-				});
-		std::cout << "Bucket " << bucket.ib.id 
-			<< " -> (" << strDivs << ")\n"; */
+		OmpLock lock(om_writeLock);		// Lock setSlices for writing
 		
 		for (IterBucket& div : bucket.divisions) {
-			IterVal mid = *(div.begin + div.size / 2);
-			setSlices.insert({ &div, mid });
+			setSlices.insert({ &div, *(div.begin + div.size / 2) });
+		}
+	}
+}
+TEMPL void DEF_BTreeSort _InsertionSortRange(Iter begin, Iter end) {
+	// Copied from std::__insertion_sort
+	
+	if (begin == end)
+		return;
+	
+	for (Iter i = begin + 1; i != end; ++i) {
+		if (comp(*i, *begin)) {
+			IterVal val = std::move(*i);
+			
+			std::move_backward(begin, i, i + 1);
+			*begin = std::move(val);
+		}
+		else {
+			IterVal val = std::move(*i);
+			
+			Iter next = i;
+			--next;
+			
+			while (comp(val, *next)) {
+				*i = std::move(*next);
+				i = next;
+				--next;
+			}
+
+			*i = std::move(val);
 		}
 	}
 }

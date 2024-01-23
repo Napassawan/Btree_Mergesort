@@ -12,7 +12,7 @@
 #include "../Common/reader.hpp"
 
 #include "timer.hpp"
-#include "sort.hpp"
+#include "btree_sort.hpp"
 
 #ifdef WINDOWS
 	#pragma message("Compile mode: Windows")
