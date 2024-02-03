@@ -83,7 +83,8 @@ int main(int argc, char** argv) {
 		g_dataOriginal = input.ReadData<TypeData>();
 		g_dataSorted = g_dataOriginal;	// Copy
 		
-		BTreeSort btreesort(g_dataSorted.begin(), g_dataSorted.end(), 
+		btreesort::BTreeSort btreesort(
+			g_dataSorted.begin(), g_dataSorted.end(), 
 			std::less<TypeData>());
 		btreesort.Sort();
 	}

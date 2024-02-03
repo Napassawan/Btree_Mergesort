@@ -10,7 +10,7 @@ public:
 		pLock = &lock;
 		omp_set_lock(pLock);
 	}
-	~OmpLock() {
+	~OmpLock() { 
 		omp_unset_lock(pLock);
 	}
 };

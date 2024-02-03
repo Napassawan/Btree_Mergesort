@@ -34,7 +34,8 @@ PerformanceTimer timer;
 
 // ------------------------------------------------------------------------------
 
-void PrintHelp() {
+void PrintHelp()
+{
 	printf("Arguments: DataType Mode Input [option...]\n");
 	printf("    DataType can be any of:\n");
 	printf("        i32, u32, i64, u64, f64\n");
@@ -50,22 +51,23 @@ void PrintHelp() {
 	printf("            c           Compact result\n");
 	printf("            v           Verbose result\n");
 }
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
 	if (argc < 4) {
 		PrintHelp();
 		return 0;
 	}
-	
+
 	bool bReport = false;
 	bool bCompact = false;
 	bool bVerbose = false;
-	
+
 	FileReader input;
-	
+
 	{
 		// Start parsing after Mode arg
 		OptParse optParse(argc - 2, argv + 2);
-		
+
 		if (optParse.OptionExists("-m")) {
 			if (auto opt = optParse.GetOptionParam("-m")) {
 				bCompact = strchr(opt->get().c_str(), 'c');
@@ -73,7 +75,7 @@ int main(int argc, char** argv) {
 			}
 			bReport = true;
 		}
-		
+
 		if (optParse.OptionExists("-b")) {
 			if (auto opt = optParse.GetOptionParam("-b")) {
 				input = FileReader(*opt, true);
@@ -93,25 +95,24 @@ int main(int argc, char** argv) {
 			}
 		}
 	}
-	
+
 	DataType typeDataParse = GetDataTypeFromString(argv[1]);
 	SortType typeSort = GetSortTypeFromString(argv[2]);
-	
+
 	if (input.path.empty() || typeDataParse == DataType::Invalid || typeSort == SortType::Invalid) {
 		PrintHelp();
 		return 0;
 	}
-	
+
 	try {
 		Work(typeDataParse, typeSort, input);
-		
-		if (bReport)
-			timer.Report(std::cout, bCompact, bVerbose);
+
+		if (bReport) timer.Report(std::cout, bCompact, bVerbose);
 	}
 	catch (const string& e) {
 		printf("Fatal error-> %s", e.c_str());
 	}
-	
+
 	//printf("Done");
 	return 0;
 }
@@ -122,46 +123,38 @@ template<typename T> void WorkGeneric(SortType sort, const FileReader& file);
 template<typename T> void PerformSort(SortType sort, vector<T>& res);
 template<typename T> void VerifySorted(vector<T>& data);
 
-void Work(DataType type, SortType sort, const FileReader& file) {
+void Work(DataType type, SortType sort, const FileReader& file)
+{
 	switch (type) {
-	case DataType::i32:
-		WorkGeneric<int32_t>(sort, file);
-		break;
-	case DataType::u32:
-		WorkGeneric<uint32_t>(sort, file);
-		break;
-	case DataType::i64:
-		WorkGeneric<int64_t>(sort, file);
-		break;
-	case DataType::u64:
-		WorkGeneric<uint64_t>(sort, file);
-		break;
-	case DataType::f64:
-		WorkGeneric<double>(sort, file);
-		break;
+	case DataType::i32: WorkGeneric<int32_t>(sort, file);	break;
+	case DataType::u32: WorkGeneric<uint32_t>(sort, file);	break;
+	case DataType::i64: WorkGeneric<int64_t>(sort, file);	break;
+	case DataType::u64: WorkGeneric<uint64_t>(sort, file);	break;
+	case DataType::f64: WorkGeneric<double>(sort, file);	break;
 	default: break;
 	}
 }
-template<typename T> void WorkGeneric(SortType sort, const FileReader& file) {
+template<typename T> void WorkGeneric(SortType sort, const FileReader& file)
+{
 	vector<T> data = file.ReadData<T>();
-	
-	printf("Read %zu data from file (%zu bytes)\n", 
-		data.size(), data.size() * sizeof(T));
-	
+
+	printf("Read %zu data from file (%zu bytes)\n", data.size(), data.size() * sizeof(T));
+
 	PerformSort(sort, data);
-	
+
 	/* for (const T& i : data) {
 		std::cout << i << " ";
 	} */
-	
+
 	VerifySorted(data);
-	
+
 	printf("\n");
 }
 
-template<typename T> void PerformSort(SortType sort, vector<T>& res) {
+template<typename T> void PerformSort(SortType sort, vector<T>& res)
+{
 	timer.Start();
-	
+
 	switch (sort) {
 	case SortType::MultiwayMerge:
 		__gnu_parallel::sort(res.begin(), res.end(), __gnu_parallel::multiway_mergesort_tag());
@@ -171,20 +164,21 @@ template<typename T> void PerformSort(SortType sort, vector<T>& res) {
 		break;
 	case SortType::BTreeMerge: {
 		//throw string("Not implemented");
-		
-		BTreeSort<typename vector<T>::iterator, std::less<T>> btreesort
-			(res.begin(), res.end(), std::less<T>());
+
+		BTreeSort<typename vector<T>::iterator, std::less<T>> btreesort(
+			res.begin(), res.end(), std::less<T>());
 		btreesort.Sort();
-		
+
 		break;
 	}
 	default: break;
 	}
-	
+
 	timer.Stop();
 }
 
-template<typename T> void VerifySorted(vector<T>& data) {
+template<typename T> void VerifySorted(vector<T>& data)
+{
 	bool sorted = std::is_sorted(std::execution::par, 
 		data.cbegin(), data.cend(), std::less<T>());
 	if (sorted) {
@@ -192,7 +186,7 @@ template<typename T> void VerifySorted(vector<T>& data) {
 	}
 	else {
 		printf("Sort failed, some elements out of order\n");
-		
+
 		// TODO: Maybe print failed elements
 	}
 }
