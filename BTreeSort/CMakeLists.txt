@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.10)
 
 set(APP_NAME btreesort)
 
@@ -8,6 +8,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 find_package(OpenMP REQUIRED)
+if (NOT WIN32)
+	find_package(TBB REQUIRED)
+endif()
 
 set(COMMON_SOURCES
 	../Common/mygetopt.cpp
@@ -25,4 +28,6 @@ target_link_libraries(${APP_NAME} PUBLIC OpenMP::OpenMP_CXX)
 
 if (WIN32)
 	target_link_libraries(${APP_NAME} PUBLIC ntdll)
+else()
+	target_link_libraries(${APP_NAME} PUBLIC TBB::tbb)
 endif()
