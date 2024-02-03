@@ -165,10 +165,10 @@ template<typename T> void PerformSort(SortType sort, vector<T>& res)
 	case SortType::BTreeMerge: {
 		//throw string("Not implemented");
 
-		BTreeSort<typename vector<T>::iterator, std::less<T>> btreesort(
+		btreesort::BTreeSort<typename vector<T>::iterator, std::less<T>> btreesort(
 			res.begin(), res.end(), std::less<T>());
 		btreesort.Sort();
-
+		
 		break;
 	}
 	default: break;
