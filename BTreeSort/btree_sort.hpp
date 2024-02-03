@@ -10,223 +10,295 @@
 
 #include "cpp-btree/btree/set.h"
 
-template<typename Iter, typename Comparator>
-class BTreeSort {
-	using IterVal = typename std::iterator_traits<Iter>::value_type;
-	using IterPair = std::array<Iter, 2>;
-	
-	// TODO: Clean this mess up
-	
-	class IterBucket {
-	public:
-		int id;
-		Iter begin, end;
-		size_t size;
-	public:
-		IterBucket() : IterBucket(-1, {}, {}) {}		// Why is C++ stupid?
-		IterBucket(int id, Iter begin, Iter end);
-	};
-	class TopIterBucket : public IterBucket {
-	public:
-		size_t nDivisions;
-		size_t maxPerDivision;
-		std::vector<IterBucket> divisions;
-	public:
-		TopIterBucket(int id, Iter begin, Iter end, size_t nDivisions);
+namespace btreesort {
+	struct Settings {
+		size_t nProcessors;
+		size_t nSubBuckets;
+		size_t nMinPerSlice;
+		size_t nParallelCutoff;
+
+		Settings();
+
+		static const Settings& get();
 	};
 
-	class Slice {
+	template<typename Iter, typename Comparator>
+	class BTreeSort {
 	public:
-		IterBucket* bucket;
-		IterVal median;
-		
-		bool operator<(const Slice& other) const {
-			return median < other.median;
-		}
-		bool operator==(const Slice& other) const {
-			return median == other.median;
-		}
-	};
-private:
-	IterBucket data;
-	Comparator comp;
-	
-	size_t nCores;
-	
-	size_t maxPerBucket;
-	std::vector<TopIterBucket> buckets;
-	
-	btree::set<Slice> setSlices;
-	
-	omp_lock_t om_writeLock;
-public:
-	BTreeSort(Iter begin, Iter end, Comparator comp);
-	~BTreeSort();
-	
-	void Sort();
-private:
-	void _WorkBucket(TopIterBucket& bucket);
-	void _InsertionSortRange(Iter begin, Iter end);
-};
+		using IterVal = typename std::iterator_traits<Iter>::value_type;
+		using IterPair = std::array<Iter, 2>;
 
-// ------------------------------------------------------------------------------
+		// TODO: Clean this mess up
+
+		class Slice {
+		public:
+			std::vector<IterVal> data;
+			IterVal median;
+
+			Slice() = default;
+			Slice(IterPair range) : data(range[0], range[1]) {
+				size_t count = std::distance(range[0], range[1]);
+				median = data[count / 2];
+			}
+
+			// Disable copy ctors
+			Slice(const Slice&) = delete;
+			Slice& operator=(const Slice&) = delete;
+
+			// Only move ctors allowed
+			Slice(Slice&& o) noexcept : 
+				data(std::exchange(o.data, {})), 
+				median(o.median) {}
+			Slice& operator=(Slice&& o) noexcept {
+				std::swap(this->data, o.data);
+				std::swap(this->median, o.median);
+				return *this;
+			}
+
+			bool operator<(const Slice& o) const { return median < o.median; }
+			bool operator==(const Slice& o) const { return median == o.median; }
+		};
+
+		using SliceRefRange = std::array<typename std::vector<const Slice*>::const_iterator, 2>;
+
+		class SliceValue {
+		public:
+			const Slice* pSlice;
+			size_t iRead;
+
+			SliceValue() = default;
+			SliceValue(const Slice* pSlice) : pSlice(pSlice), iRead(0) {}
+
+			IterVal get() const { return pSlice->data[iRead]; }
+
+			bool operator<(const SliceValue& o) const { return get() < o.get(); }
+			bool operator==(const SliceValue& o) const { return get() == o.get(); }
+		};
+	private:
+		IterPair data;
+		Comparator comp;
+
+		btree::set<Slice> setSlices;
+
+		omp_lock_t om_writeLock;
+	public:
+		BTreeSort(Iter begin, Iter end, Comparator comp);
+		~BTreeSort();
+
+		void Sort();
+	private:
+		std::vector<std::array<size_t, 3>> _GenerateDivisions(size_t count, size_t divs);
+
+		void _SortBucket(IterPair range);
+		void _ShuffleSlices(Iter dest, SliceRefRange slices);
+		void _InsertionSortRange(Iter begin, Iter end);
+	};
+
+	// ------------------------------------------------------------------------------
 
 #define TEMPL template<typename Iter, typename Comparator>
 #define DEF_BTreeSort BTreeSort<Iter, Comparator>::
 
-TEMPL inline
-DEF_BTreeSort IterBucket::IterBucket(int id, Iter begin, Iter end) {
-	this->id = id;
-	this->begin = begin;
-	this->end = end;
-	size = std::distance(begin, end);
-}
-TEMPL inline
-DEF_BTreeSort TopIterBucket::TopIterBucket(int id, Iter begin, Iter end, size_t nDivisions)
-	: IterBucket(id, begin, end)
-{
-	this->nDivisions = nDivisions;
-	maxPerDivision = this->size / nDivisions;
-	if (maxPerDivision < 4) {
-		maxPerDivision = 4;
-		this->nDivisions = this->size / maxPerDivision;
-	}
-	
-	divisions.reserve(nDivisions);
-}
-
-TEMPL inline
-DEF_BTreeSort BTreeSort(Iter begin, Iter end, Comparator comp) {
-	data = IterBucket(-1, begin, end);
-	this->comp = comp;
-	
-	nCores = omp_get_num_procs();
-	omp_set_dynamic(0);
-	omp_set_num_threads(nCores);
-
-	buckets.clear();
-	
-	omp_init_lock(&om_writeLock);
-}
-TEMPL inline
-DEF_BTreeSort ~BTreeSort() {
-	omp_destroy_lock(&om_writeLock);
-}
-
-TEMPL void DEF_BTreeSort Sort() {
-	constexpr size_t PARALLEL_CUTOFF = /* 10000 */ 10;
-	constexpr size_t N_SUB_BUCKETS = 16;
-	
-	auto itrBegin = data.begin, itrEnd = data.end;
-	size_t dataCount = std::distance(itrBegin, itrEnd);
-	
-	if (dataCount < PARALLEL_CUTOFF) {
-		std::sort(itrBegin, itrEnd);
-	}
-	else {
-		// Partition sub-lists
-		for (size_t iCore = 0; iCore < nCores; ++iCore) {
-			size_t begin = dataCount * iCore / nCores;
-			size_t end = dataCount * (iCore + 1) / nCores;
-			buckets.push_back(TopIterBucket(iCore, 
-				itrBegin + begin, itrBegin + end, N_SUB_BUCKETS));
-		}
-
-#pragma omp parallel for
-		for (size_t i = 0; i < nCores; ++i) {
-			_WorkBucket(buckets[i]);
-		}
-		
-		/* printf("BTree size: %zu\n", setSlices.size());
-		for (const Slice& s : setSlices) {
-			const IterBucket& b = *s.bucket;
-			IterVal beg = *b.begin, end = *(b.end - 1);
-			IterVal mid = s.median;
-			std::cout << b.id << " -> " << mid 
-				<< " -> [" << beg << ", " << end << "]\n";
-		} */
-		
-		{
-			// TODO: Find a way to not create a whole new array of equal size
-			
-			std::vector<IterVal> newData;
-			newData.reserve(dataCount);
-			
-			// Copy slices to new vector in ascending order
-			for (const Slice& s : setSlices) {
-				newData.insert(newData.end(), s.bucket->begin, s.bucket->end);
-			}
-
-#pragma omp parallel for
-			for (size_t iCore = 0; iCore < nCores; ++iCore) {
-				size_t begin = dataCount * iCore / nCores;
-				size_t end = dataCount * (iCore + 1) / nCores;
-				_InsertionSortRange(
-					newData.begin() + begin,
-					newData.begin() + end);
-			}
-			
-			for (size_t i = 0; i < dataCount; ++i) {
-				*(itrBegin + i) = newData[i];
-			}
-		}
-	}
-}
-TEMPL void DEF_BTreeSort _WorkBucket(TopIterBucket& bucket) {
-	auto& itrBegin = bucket.begin, &itrEnd = bucket.end;
-	
-	// TODO: Replace with non-STD sort
-	std::sort(itrBegin, itrEnd, comp);
-	
-	// Partition sub-divisions
-	// TODO: Maybe make division less naive
-	for (size_t iDiv = 0; iDiv < bucket.nDivisions; ++iDiv) {
-		size_t begin = bucket.size * iDiv / bucket.nDivisions;
-		size_t end = bucket.size * (iDiv + 1) / bucket.nDivisions;
-		
-		if (end - begin > 0) {
-			bucket.divisions.push_back(IterBucket(
-				bucket.id * bucket.maxPerDivision + iDiv, 
-				itrBegin + begin, itrBegin + end));
-		}
-	}
-	
+	TEMPL inline DEF_BTreeSort 
+	BTreeSort(Iter begin, Iter end, Comparator comp) :
+		data({ begin, end }), comp(comp) 
 	{
-		OmpLock lock(om_writeLock);		// Lock setSlices for writing
-		
-		for (IterBucket& div : bucket.divisions) {
-			setSlices.insert({ &div, *(div.begin + div.size / 2) });
-		}
+		omp_set_dynamic(false);
+		omp_set_num_threads(Settings::get().nProcessors);
+
+		omp_init_lock(&om_writeLock);
 	}
-}
-TEMPL void DEF_BTreeSort _InsertionSortRange(Iter begin, Iter end) {
-	// Copied from std::__insertion_sort
-	
-	if (begin == end)
-		return;
-	
-	for (Iter i = begin + 1; i != end; ++i) {
-		if (comp(*i, *begin)) {
-			IterVal val = std::move(*i);
-			
-			std::move_backward(begin, i, i + 1);
-			*begin = std::move(val);
+	TEMPL inline DEF_BTreeSort ~BTreeSort()
+	{
+		omp_destroy_lock(&om_writeLock);
+	}
+
+	TEMPL void DEF_BTreeSort Sort()
+	{
+		size_t nProcessors = Settings::get().nProcessors;
+		size_t nSlices = Settings::get().nSubBuckets;
+
+		auto& [itrBegin, itrEnd] = data;
+		size_t dataCount = std::distance(itrBegin, itrEnd);
+
+		// If too few data, just use normal sorting
+		if (dataCount < Settings::get().nParallelCutoff) {
+			std::sort(itrBegin, itrEnd);
 		}
 		else {
-			IterVal val = std::move(*i);
-			
-			Iter next = i;
-			--next;
-			
-			while (comp(val, *next)) {
-				*i = std::move(*next);
-				i = next;
-				--next;
+			auto buckets = _GenerateDivisions(dataCount, nProcessors);
+
+#pragma omp parallel for
+			for (auto& [i, begin, end] : buckets) {
+				_SortBucket({ itrBegin + begin, itrBegin + end });
 			}
 
-			*i = std::move(val);
+			{
+				// Load slices from min to max
+
+				std::vector<const Slice*> slicesSorted;
+				slicesSorted.reserve(setSlices.size());
+
+				for (const Slice& s : setSlices) {
+					slicesSorted.push_back(&s);
+				}
+
+				{
+					// Ready slices for multiway merging
+
+					struct _ShufParam {
+						SliceRefRange slices;
+						size_t placement;
+						size_t count;
+					};
+					std::vector<_ShufParam> shufParams(nSlices);
+
+					{
+						size_t placement = 0;
+						for (size_t i = 0; i < nSlices; ++i) {
+							auto itrSliceBeg = slicesSorted.begin() + i * nProcessors;
+							auto itrSliceEnd = itrSliceBeg + nProcessors;
+
+							// Sum the amount of all data in this slice range
+							size_t count = 0;
+							for (auto itr = itrSliceBeg; itr != itrSliceEnd; ++itr) {
+								count += (*itr)->data.size();
+							}
+
+							shufParams[i] = {
+								{ itrSliceBeg, itrSliceEnd },
+								placement,
+								count,
+							};
+							placement += count;
+						}
+					}
+
+#pragma omp parallel for
+					for (auto& sp : shufParams) {
+						_ShuffleSlices(itrBegin + sp.placement, sp.slices);
+					}
+				}
+			}
+
+			_InsertionSortRange(itrBegin, itrEnd);
 		}
 	}
-}
+
+	// Divides [count] elements into [divs] divisions roughly equally
+	TEMPL std::vector<std::array<size_t, 3>> DEF_BTreeSort 
+	_GenerateDivisions(size_t count, size_t divs)
+	{
+		std::vector<std::array<size_t, 3>> res { divs };
+
+		for (size_t i = 0; i < divs; ++i) {
+			size_t begin = count * i / divs + std::min(count % divs, i);
+			size_t end = count * (i + 1) / divs + std::min(count % divs, i + 1);
+			res[i] = { i, begin, end };
+		}
+
+		return res;
+	}
+
+	TEMPL void DEF_BTreeSort _SortBucket(IterPair bucket)
+	{
+		auto& [itrBegin, itrEnd] = bucket;
+
+		// Maybe replace with quicksort rather than STD introsort?
+		std::sort(itrBegin, itrEnd, comp);
+
+		size_t nSlices = Settings::get().nSubBuckets;
+		auto partitions = _GenerateDivisions(std::distance(itrBegin, itrEnd), nSlices);
+
+		// Partition slices
+		{
+			OmpLock lock(om_writeLock); // Lock setSlices for writing
+
+			for (auto& [i, begin, end] : partitions) {
+				if (end - begin > 0) {
+					IterPair range = { itrBegin + begin, itrBegin + end };
+					setSlices.insert(std::move(Slice(range)));
+				}
+			}
+		}
+	}
+	TEMPL void DEF_BTreeSort _ShuffleSlices(Iter dest, SliceRefRange slices)
+	{
+		btree::set<SliceValue> heap;
+
+		for (auto itr = slices[0]; itr != slices[1]; ++itr) {
+			const Slice* s = *itr;
+			if (s->data.size() > 0) {
+				heap.insert(SliceValue(s));
+			}
+		}
+
+		while (!heap.empty()) {
+			auto itrFront = heap.begin();
+			SliceValue front = *itrFront;
+
+			// Pop min element from heap into dest
+			*(dest++) = front.get();
+			heap.erase(itrFront);
+
+			{
+				// Advance read index and move the next element into the heap
+
+				front.iRead += 1;
+				if (front.iRead < front.pSlice->data.size()) {
+					heap.insert(std::move(front));
+				}
+			}
+		}
+	}
+
+	TEMPL void DEF_BTreeSort _InsertionSortRange(Iter begin, Iter end)
+	{
+		// Copied from std::__insertion_sort
+
+		if (begin == end) return;
+
+		for (Iter i = begin + 1; i != end; ++i) {
+			if (comp(*i, *begin)) {
+				IterVal val = std::move(*i);
+
+				std::move_backward(begin, i, i + 1);
+				*begin = std::move(val);
+			} else {
+				IterVal val = std::move(*i);
+
+				Iter next = i;
+				--next;
+
+				while (comp(val, *next)) {
+					*i = std::move(*next);
+					i = next;
+					--next;
+				}
+
+				*i = std::move(val);
+			}
+		}
+	}
 
 #undef TEMPL
+
+	// ------------------------------------------------------------------------------
+
+	Settings::Settings()
+	{
+		nProcessors = omp_get_num_procs();
+		nSubBuckets = nProcessors;
+
+		/* nProcessors = 8;
+		nSubBuckets = 4; */
+
+		nMinPerSlice = 4;
+		nParallelCutoff = nProcessors * nSubBuckets * nMinPerSlice;
+	}
+	const Settings& Settings::get()
+	{
+		static Settings s {};
+		return s;
+	}
+}
