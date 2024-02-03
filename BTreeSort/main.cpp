@@ -32,6 +32,8 @@ void Work(DataType type, SortType sort, const FileReader& file);
 // Static timer so I don't have to throw it across 73 functions
 PerformanceTimer timer;
 
+size_t runCount = 1;
+
 // ------------------------------------------------------------------------------
 
 void PrintHelp()
@@ -50,6 +52,7 @@ void PrintHelp()
 	printf("        -m [cv]     Benchmark result options\n");
 	printf("            c           Compact result\n");
 	printf("            v           Verbose result\n");
+	printf("        -n [num]    Repeat count\n");
 }
 int main(int argc, char** argv)
 {
@@ -94,6 +97,16 @@ int main(int argc, char** argv)
 				return -1;
 			}
 		}
+
+		if (optParse.OptionExists("-n")) {
+			if (auto opt = optParse.GetOptionParam("-n")) {
+				runCount = strtoul(opt->get().c_str(), nullptr, 10);
+			}
+			else {
+				printf("-n: Amount is required\n");
+				return -1;
+			}
+		}
 	}
 
 	DataType typeDataParse = GetDataTypeFromString(argv[1]);
@@ -107,7 +120,8 @@ int main(int argc, char** argv)
 	try {
 		Work(typeDataParse, typeSort, input);
 
-		if (bReport) timer.Report(std::cout, bCompact, bVerbose);
+		if (bReport)
+			timer.Report(std::cout, bCompact, bVerbose);
 	}
 	catch (const string& e) {
 		printf("Fatal error-> %s", e.c_str());
@@ -139,8 +153,18 @@ template<typename T> void WorkGeneric(SortType sort, const FileReader& file)
 	vector<T> data = file.ReadData<T>();
 
 	printf("Read %zu data from file (%zu bytes)\n", data.size(), data.size() * sizeof(T));
+	
+	{
+		timer.Start();
+		
+		for (size_t i = 0; i < runCount; ++i) {
+			std::cout << "Run " << i << "\n";
+			
+			PerformSort(sort, data);
+		}
 
-	PerformSort(sort, data);
+		timer.Stop();
+	}
 
 	/* for (const T& i : data) {
 		std::cout << i << " ";
@@ -153,14 +177,14 @@ template<typename T> void WorkGeneric(SortType sort, const FileReader& file)
 
 template<typename T> void PerformSort(SortType sort, vector<T>& res)
 {
-	timer.Start();
-
 	switch (sort) {
 	case SortType::MultiwayMerge:
-		__gnu_parallel::sort(res.begin(), res.end(), __gnu_parallel::multiway_mergesort_tag());
+		__gnu_parallel::sort(res.begin(), res.end(),
+			__gnu_parallel::multiway_mergesort_tag());
 		break;
 	case SortType::BalancedQuick:
-		__gnu_parallel::sort(res.begin(), res.end(), __gnu_parallel::balanced_quicksort_tag());
+		__gnu_parallel::sort(res.begin(), res.end(),
+			__gnu_parallel::balanced_quicksort_tag());
 		break;
 	case SortType::BTreeMerge: {
 		//throw string("Not implemented");
@@ -173,8 +197,6 @@ template<typename T> void PerformSort(SortType sort, vector<T>& res)
 	}
 	default: break;
 	}
-
-	timer.Stop();
 }
 
 template<typename T> void VerifySorted(vector<T>& data)
@@ -186,7 +208,7 @@ template<typename T> void VerifySorted(vector<T>& data)
 	}
 	else {
 		printf("Sort failed, some elements out of order\n");
-
+		
 		// TODO: Maybe print failed elements
 	}
 }
