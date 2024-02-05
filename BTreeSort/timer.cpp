@@ -133,7 +133,7 @@ void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose)
 		}
 		else {
 			sprintf(tmp, 
-				"(%10" PRIu64 ", %10" PRIu64 ", %10" PRIu64 ", %10" PRIu64 ")\n",
+				"%12" PRIu64 ", %12" PRIu64 ", %12" PRIu64 ", %12" PRIu64 "\n",
 				time.total, time.user, time.sys, time.idle);
 			out << tmp;
 		}

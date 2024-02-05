@@ -156,13 +156,21 @@ template<typename T> void WorkGeneric(SortType sort, const FileReader& file)
 	
 	{
 		timer.Start();
-		
+
+		//std::cout << "Run ";
+
 		for (size_t i = 0; i < runCount; ++i) {
-			std::cout << "Run " << i << "\n";
+			/* if (i % 100 == 0) {
+				if (i != 0) {
+					std::cout << ", ";
+				}
+			}
+			std::cout << i; */
 			
 			PerformSort(sort, data);
 		}
-
+		std::cout << "\n";
+		
 		timer.Stop();
 	}
 
