@@ -5,16 +5,16 @@ compiler = meson.get_compiler('cpp')
 
 # --------------------------------------------------------------
 
-omp = dependency('openmp')
+deps = [dependency('openmp')]
+if system != 'windows'
+	deps += compiler.find_library('tbb')
+endif
 
 common = ['../Common/mygetopt.cpp']
 
 add_project_arguments('-g',
 	language : 'cpp')
 
-executable('generator', sources : [ 'generator.cpp' ],
-	dependencies : omp)
-
-executable('generator_new', 
+executable('generator', 
 	sources : ['generator_new.cpp'] + common,
-	dependencies : omp)
+	dependencies : deps)
