@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <memory>
+#include <limits>
 
 #include <execution>
 #include <algorithm>
@@ -29,9 +30,18 @@ using std::unique_ptr;
 
 // ------------------------------------------------------------------------------
 
-using TypeData = double;
-constexpr TypeData NUM_MIN = -10000.0;
-constexpr TypeData NUM_MAX = 10000.0;
+using TypeData = int32_t;
+
+template<typename T> class Bounds {
+public:
+	static constexpr T min = std::numeric_limits<T>::min();
+	static constexpr T max = std::numeric_limits<T>::max();
+};
+template<> class Bounds<double> {
+public:
+	static constexpr double min = -10000.0;
+	static constexpr double max = 10000.0;
+};
 
 vector<TypeData> g_dataOriginal;
 vector<TypeData> g_dataSorted;
@@ -78,7 +88,7 @@ int main(int argc, char** argv) {
 	ImGui_ImplOpenGL3_Init(glsl_version);
 	
 	{
-		FileReader input("data_1k_f64_r.bin", true);
+		FileReader input(argv[1], true);
 		
 		g_dataOriginal = input.ReadData<TypeData>();
 		g_dataSorted = g_dataOriginal;	// Copy
@@ -171,7 +181,9 @@ void RenderData(vector<TypeData>& data) {
 	const ImU32 col = ImColor(ImVec4(0.9f, 0.9f, 1.0f, 1.0f));
 	
 	for (auto& i : data) {
-		float rate = (i - NUM_MIN) / (float)(NUM_MAX - NUM_MIN);
+		double min = (double)Bounds<TypeData>::min;
+		double max = (double)Bounds<TypeData>::max;
+		double rate = ((double)i - min) / (max - min);
 		float height = cvMaxHeight * rate;
 		
 		drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + itemW, y - height), col);
