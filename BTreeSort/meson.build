@@ -6,7 +6,6 @@ compiler = meson.get_compiler('cpp')
 # --------------------------------------------------------------
 
 system = build_machine.system()
-
 message('System is ' + system)
 
 incs = [include_directories('../External')]

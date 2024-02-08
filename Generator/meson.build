@@ -5,6 +5,9 @@ compiler = meson.get_compiler('cpp')
 
 # --------------------------------------------------------------
 
+system = build_machine.system()
+message('System is ' + system)
+
 deps = [dependency('openmp')]
 if system != 'windows'
 	deps += compiler.find_library('tbb')
