@@ -15,9 +15,6 @@ endif
 
 common = ['../Common/mygetopt.cpp']
 
-add_project_arguments('-g',
-	language : 'cpp')
-
 executable('generator', 
 	sources : ['generator_new.cpp'] + common,
 	dependencies : deps)
