@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 find_package(OpenMP REQUIRED)
 if (NOT WIN32)
-	find_package(TBB REQUIRED)
+	find_package(TBB)
 endif()
 
 set(COMMON_SOURCES
@@ -28,6 +28,6 @@ target_link_libraries(${APP_NAME} PUBLIC OpenMP::OpenMP_CXX)
 
 if (WIN32)
 	target_link_libraries(${APP_NAME} PUBLIC ntdll)
-else()
+elseif (TBB_FOUND)
 	target_link_libraries(${APP_NAME} PUBLIC TBB::tbb)
 endif()
