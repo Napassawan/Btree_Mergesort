@@ -127,7 +127,7 @@ int main(int argc, char** argv)
 		printf("Fatal error-> %s", e.c_str());
 	}
 
-	//printf("Done");
+	printf("\n");
 	return 0;
 }
 

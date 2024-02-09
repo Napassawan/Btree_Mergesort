@@ -56,7 +56,7 @@ void PrintHelp()
 	printf("    DataType can be:    i32, u32, i64, u64, f64\n");
 	printf("    Arrangement can be: random, reversed, fewunique, nsorted\n");
 	printf("    Option can be:\n");
-	printf("        -b file         Output as binary to file");
+	printf("        -b file         Output as binary to file\n");
 }
 int main(int argc, char** argv)
 {
@@ -101,7 +101,7 @@ int main(int argc, char** argv)
 		printf("Fatal error-> %s", e.c_str());
 	}
 
-	//printf("Done");
+	printf("\n");
 	return 0;
 }
 
