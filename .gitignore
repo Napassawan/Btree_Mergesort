@@ -61,6 +61,5 @@ Data/*.bin
 *.stackdump
 *.out
 
-GNUBenchmark_uint32_generator/**/*.txt
-
+.build*/
 build*/
