@@ -98,10 +98,10 @@ int main(int argc, char** argv)
 		GenerateDataFromType(countData, typeDataGenerate, typeDataArrangement);
 	}
 	catch (const string& e) {
-		printf("Fatal error-> %s", e.c_str());
+		printf("Fatal error-> %s\n", e.c_str());
 	}
 
-	printf("\n");
+	//printf("\n");
 	return 0;
 }
 
