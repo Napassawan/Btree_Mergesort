@@ -15,12 +15,12 @@
 #ifdef USE_STD_SET
 
 #include <set>
-template<typename T> using set_t = std::set<T>;
+template<typename T> using set_t = std::multiset<T>;
 
 #else
-	
+
 #include "cpp-btree/btree/set.h"
-template<typename T> using set_t = btree::set<T>;
+template<typename T> using set_t = btree::multiset<T>;
 
 #endif
 
@@ -32,20 +32,20 @@ namespace btreesort {
 		size_t nSubBuckets;
 		size_t nMinPerSlice;
 		size_t nParallelCutoff;
-
+		
 		Settings();
-
+		
 		static const Settings& get();
 	};
-
+	
 	template<typename Iter, typename Comparator>
 	class BTreeSort {
 	public:
 		using IterVal = typename std::iterator_traits<Iter>::value_type;
 		using IterPair = std::array<Iter, 2>;
-
+		
 		// TODO: Clean this mess up
-
+		
 		class Slice {
 		public:
 			IterPair range;
@@ -78,9 +78,9 @@ namespace btreesort {
 			bool operator<(const Slice& o) const { return median < o.median; }
 			bool operator==(const Slice& o) const { return median == o.median; }
 		};
-
+		
 		using SliceRefRange = std::array<typename std::vector<const Slice*>::const_iterator, 2>;
-
+		
 		class SliceValue {
 		public:
 			const Slice* pSlice;
@@ -97,18 +97,18 @@ namespace btreesort {
 	private:
 		IterPair data;
 		Comparator comp;
-
+		
 		set_t<Slice> setSlices;
-
+		
 		omp_lock_t om_writeLock;
 	public:
 		BTreeSort(Iter begin, Iter end, Comparator comp);
 		~BTreeSort();
-
+		
 		void Sort();
 	private:
 		std::vector<std::array<size_t, 3>> _GenerateDivisions(size_t count, size_t divs);
-
+		
 		void _SortBucket(IterPair range);
 		void _ShuffleSlices(Iter dest, const std::vector<const Slice*>& slices);
 		void _MultiwayHeap(Iter dest, SliceRefRange slices);
@@ -126,7 +126,7 @@ namespace btreesort {
 	{
 		omp_set_dynamic(false);
 		omp_set_num_threads(Settings::get().nProcessors);
-
+		
 		omp_init_lock(&om_writeLock);
 	}
 	TEMPL inline DEF_BTreeSort ~BTreeSort()
@@ -138,10 +138,10 @@ namespace btreesort {
 	{
 		size_t nProcessors = Settings::get().nProcessors;
 		size_t nSlices = Settings::get().nSubBuckets;
-
+		
 		auto& [itrBegin, itrEnd] = data;
 		size_t dataCount = std::distance(itrBegin, itrEnd);
-
+		
 		// If too few data, just use normal sorting
 		if (dataCount < Settings::get().nParallelCutoff) {
 			std::sort(itrBegin, itrEnd, comp);
@@ -168,17 +168,16 @@ namespace btreesort {
 					std::vector<IterVal> dataNew;
 					dataNew.reserve(dataCount);
 					dataNew.resize(dataCount);
-
+					
 					_ShuffleSlices(dataNew.begin(), slicesSorted);
-
 					_InsertionSortRange(dataNew.begin(), dataNew.end());
 					
 					for (size_t i = 0; i < dataCount; ++i) {
 						*(itrBegin + i) = dataNew[i];
 					}
 				}
-				/* _ShuffleSlices(itrBegin, slicesSorted);
-				_InsertionSortRange(itrBegin, itrEnd); */
+				//_ShuffleSlices(itrBegin, slicesSorted);
+				//_InsertionSortRange(itrBegin, itrEnd);
 			}
 		}
 	}
@@ -188,13 +187,13 @@ namespace btreesort {
 	_GenerateDivisions(size_t count, size_t divs)
 	{
 		std::vector<std::array<size_t, 3>> res { divs };
-
+		
 		for (size_t i = 0; i < divs; ++i) {
 			size_t begin = count * i / divs;
 			size_t end = count * (i + 1) / divs;
 			res[i] = { i, begin, end };
 		}
-
+		
 		return res;
 	}
 
@@ -213,10 +212,8 @@ namespace btreesort {
 			OmpLock lock(om_writeLock); // Lock setSlices for writing
 			
 			for (auto& [i, begin, end] : partitions) {
-				if (end - begin > 0) {
-					IterPair range = { itrBegin + begin, itrBegin + end };
-					setSlices.insert(std::move(Slice(range)));
-				}
+				Slice s({ itrBegin + begin, itrBegin + end });
+				setSlices.insert(std::move(s));
 			}
 		}
 	}
@@ -227,17 +224,20 @@ namespace btreesort {
 		
 		{
 			struct _ShufParam {
+				size_t index;
 				SliceRefRange slices;
 				size_t placement;
 				size_t count;
 			};
 			std::vector<_ShufParam> shufParams(nSlices);
-
+			
+			auto sliceDivs = _GenerateDivisions(slices.size(), nSlices);
+			
 			{
 				size_t placement = 0;
-				for (size_t i = 0; i < nSlices; ++i) {
-					auto itrSliceBeg = slices.begin() + i * nProcessors;
-					auto itrSliceEnd = itrSliceBeg + nProcessors;
+				for (auto& [i, iBegin, iEnd] : sliceDivs) {
+					auto itrSliceBeg = slices.begin() + iBegin;
+					auto itrSliceEnd = slices.begin() + iEnd;
 					
 					// Sum the amount of all data in this slice range
 					size_t count = 0;
@@ -246,6 +246,7 @@ namespace btreesort {
 					}
 					
 					shufParams[i] = _ShufParam {
+						i,
 						{ itrSliceBeg, itrSliceEnd },
 						placement,
 						count,
@@ -281,7 +282,7 @@ namespace btreesort {
 			
 			{
 				// Advance read index and move the next element into the heap
-
+				
 				front.iRead += 1;
 				if (front.iRead < front.pSlice->size()) {
 					heap.insert(std::move(front));
@@ -295,25 +296,26 @@ namespace btreesort {
 		// Copied from std::__insertion_sort
 		
 		if (begin == end) return;
-
+		
 		for (Iter i = begin + 1; i != end; ++i) {
 			if (comp(*i, *begin)) {
 				IterVal val = std::move(*i);
-
+				
 				std::move_backward(begin, i, i + 1);
 				*begin = std::move(val);
-			} else {
+			}
+			else {
 				IterVal val = std::move(*i);
-
+				
 				Iter next = i;
 				--next;
-
+				
 				while (comp(val, *next)) {
 					*i = std::move(*next);
 					i = next;
 					--next;
 				}
-
+				
 				*i = std::move(val);
 			}
 		}
