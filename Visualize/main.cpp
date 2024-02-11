@@ -21,7 +21,7 @@
 #include "../Common/util.hpp"
 #include "../Common/reader.hpp"
 
-#include "../BTreeSort/btree_sort.hpp"
+#include "btree_sort.hpp"
 
 using std::string;
 using std::vector;
