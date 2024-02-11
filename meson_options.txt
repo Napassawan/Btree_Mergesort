@@ -2,6 +2,6 @@ option('build_generator', type : 'boolean', value : true,
 	description : 'Build generator (default: true)')
 option('build_benchmark', type : 'boolean', value : true,
 	description : 'Build benchmark (default: true)')
-option('build_visualizer', type : 'boolean', value : true,
+option('build_visualizer', type : 'boolean', value : false,
 	description : 'Build visualizer (default: false)\n' +
 				  'Requires glfw')
