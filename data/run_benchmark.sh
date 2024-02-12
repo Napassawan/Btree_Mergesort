@@ -36,8 +36,8 @@ for data_file in $file_match; do
 	
 	for e_bound in "${run_count_map[@]}"; do
 		IFS=','; read -a rc <<< "$e_bound"
-		
 		bound=${rc[0]}; count=${rc[1]};
+		
 		if [[ $count_mag -le $bound ]]; then
 			run_count=$count
 			break
