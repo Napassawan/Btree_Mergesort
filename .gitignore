@@ -55,8 +55,8 @@ dkms.conf
 /**/.vs/
 .vscode/
 
-Data/*.txt
-Data/*.bin
+data/**/*.txt
+data/**/*.bin
 
 *.stackdump
 *.out
