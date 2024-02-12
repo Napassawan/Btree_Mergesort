@@ -153,7 +153,8 @@ template<typename T> void WorkGeneric(SortType sort, const FileReader& file)
 	vector<T> data = file.ReadData<T>();
 
 	printf("Read %zu data from file (%zu bytes)\n", data.size(), data.size() * sizeof(T));
-	
+	printf("Repeat: %zu\n", runCount);
+
 	{
 		timer.Start();
 
