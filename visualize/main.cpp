@@ -18,8 +18,8 @@
 
 // ---------------------------------------
 
-#include "../Common/util.hpp"
-#include "../Common/reader.hpp"
+#include "../common/util.hpp"
+#include "../common/reader.hpp"
 
 #include "btree_sort.hpp"
 

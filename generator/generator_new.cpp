@@ -15,7 +15,7 @@
 #include <string.h>
 #include <omp.h>
 
-#include "../Common/util.hpp"
+#include "../common/util.hpp"
 
 using std::string;
 using std::vector;
