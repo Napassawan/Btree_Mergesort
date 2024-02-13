@@ -30,7 +30,7 @@ using std::unique_ptr;
 
 // ------------------------------------------------------------------------------
 
-using TypeData = int32_t;
+using TypeData = double;
 
 template<typename T> class Bounds {
 public:
@@ -106,16 +106,16 @@ int main(int argc, char** argv) {
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 		
-		{
-			ImGui::SetNextWindowSize(ImVec2(1200, 400), ImGuiCond_Appearing);
+		/* {
+			ImGui::SetNextWindowSize(ImVec2(1700, 900), ImGuiCond_Appearing);
 			ImGui::Begin("Data original");
 			
 			RenderData(g_dataOriginal);
 			
 			ImGui::End();
-		}
+		} */
 		{
-			ImGui::SetNextWindowSize(ImVec2(1200, 400), ImGuiCond_Appearing);
+			ImGui::SetNextWindowSize(ImVec2(1700, 900), ImGuiCond_Appearing);
 			ImGui::Begin("Data sorted");
 			
 			RenderData(g_dataSorted);
@@ -166,8 +166,8 @@ int main(int argc, char** argv) {
 }
 
 void RenderData(vector<TypeData>& data) {
-	const float cvWidth = 1100;
-	const float cvMaxHeight = 250;
+	const float cvWidth = 1600;
+	const float cvMaxHeight = 750;
 	
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	
