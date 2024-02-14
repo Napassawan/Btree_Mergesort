@@ -13,21 +13,21 @@ mode=$4
 report_dest=$5
 
 if ! [ -f $path_bench ]; then
-	echo "program doesn't exist"
+	echo "program doesn't exist: ${path_bench}"
 	exit -1
 fi
 if ! [ -d $report_dest ]; then
-	echo "dest directory doesn't exist"
+	echo "dest directory doesn't exist: ${report_dest}"
 	exit -1
 fi
 
 declare -ra run_count_map=(
-	"4,20000"
-	"5,5000"
-	"6,500"
-	"7,100"
-	"8,100"
-	"9999,50"
+	#"4,20000"
+	"5,1000"
+	"6,100"
+	#"7,100"
+	#"8,100"
+	"9999,10"
 )
 
 for data_file in $file_match; do
