@@ -5,6 +5,7 @@
 #include <vector>
 #include <array>
 #include <algorithm>
+#include <queue>
 
 #include <omp.h>
 
@@ -15,12 +16,12 @@
 #ifdef USE_STD_SET
 
 #include <set>
-template<typename T> using set_t = std::multiset<T>;
+template<typename T> using set_t = std::set<T>;
 
 #else
 
 #include "cpp-btree/btree/set.h"
-template<typename T> using set_t = btree::multiset<T>;
+template<typename T> using set_t = btree::set<T>;
 
 #endif
 
@@ -48,12 +49,14 @@ namespace btreesort {
 		
 		class Slice {
 		public:
+			size_t id;
 			IterPair range;
 			size_t count;
 			IterVal median;
 			
 			Slice() = default;
-			Slice(IterPair range) : range(range) {
+			Slice(size_t id, IterPair range) : id(id), range(range)
+			{
 				count = std::distance(range[0], range[1]);
 				median = get(size() / 2);
 			}
@@ -61,22 +64,18 @@ namespace btreesort {
 			size_t size() const { return count; }
 			IterVal get(size_t i) const { return *(range[0] + i); }
 			
-			/* // Disable copy ctors
-			Slice(const Slice&) = delete;
-			Slice& operator=(const Slice&) = delete;
-			
-			// Only move ctors allowed
-			Slice(Slice&& o) noexcept : 
-				data(std::exchange(o.data, {})), 
-				median(o.median) {}
-			Slice& operator=(Slice&& o) noexcept {
-				std::swap(this->data, o.data);
-				std::swap(this->median, o.median);
-				return *this;
-			} */
-			
-			bool operator<(const Slice& o) const { return median < o.median; }
-			bool operator==(const Slice& o) const { return median == o.median; }
+			//bool operator<(const Slice& o) const { return median < o.median; }
+			//bool operator==(const Slice& o) const { return median == o.median; }
+			bool operator<(const Slice& o) const { 
+				if (median != o.median)
+					return median < o.median;
+				return id < o.id;
+			}
+			bool operator==(const Slice& o) const { 
+				if (median != o.median)
+					return false;
+				return id == o.id;
+			}
 		};
 		
 		using SliceRefRange = std::array<typename std::vector<const Slice*>::const_iterator, 2>;
@@ -92,6 +91,7 @@ namespace btreesort {
 			IterVal get() const { return pSlice->get(iRead); }
 			
 			bool operator<(const SliceValue& o) const { return get() < o.get(); }
+			bool operator>(const SliceValue& o) const { return get() > o.get(); }
 			bool operator==(const SliceValue& o) const { return get() == o.get(); }
 		};
 	private:
@@ -109,7 +109,7 @@ namespace btreesort {
 	private:
 		std::vector<std::array<size_t, 3>> _GenerateDivisions(size_t count, size_t divs);
 		
-		void _SortBucket(IterPair range);
+		void _SortBucket(size_t id, IterPair range);
 		void _ShuffleSlices(Iter dest, const std::vector<const Slice*>& slices);
 		void _MultiwayHeap(Iter dest, SliceRefRange slices);
 		void _InsertionSortRange(Iter begin, Iter end);
@@ -151,7 +151,7 @@ namespace btreesort {
 
 #pragma omp parallel for
 			for (auto& [i, begin, end] : buckets) {
-				_SortBucket({ itrBegin + begin, itrBegin + end });
+				_SortBucket(i, { itrBegin + begin, itrBegin + end });
 			}
 			
 			{
@@ -197,7 +197,7 @@ namespace btreesort {
 		return res;
 	}
 
-	TEMPL void DEF_BTreeSort _SortBucket(IterPair bucket)
+	TEMPL void DEF_BTreeSort _SortBucket(size_t id, IterPair bucket)
 	{
 		auto& [itrBegin, itrEnd] = bucket;
 		
@@ -212,7 +212,7 @@ namespace btreesort {
 			OmpLock lock(om_writeLock); // Lock setSlices for writing
 			
 			for (auto& [i, begin, end] : partitions) {
-				Slice s({ itrBegin + begin, itrBegin + end });
+				Slice s(id * nSlices + i, { itrBegin + begin, itrBegin + end });
 				setSlices.insert(std::move(s));
 			}
 		}
@@ -263,29 +263,30 @@ namespace btreesort {
 	}
 	TEMPL void DEF_BTreeSort _MultiwayHeap(Iter dest, SliceRefRange slices)
 	{
-		set_t<SliceValue> heap;
+		//multiset_t<SliceValue> heap;
+		std::priority_queue<SliceValue, std::vector<SliceValue>, 
+			std::greater<SliceValue>> heap;
 		
 		for (auto itr = slices[0]; itr != slices[1]; ++itr) {
 			const Slice* s = *itr;
 			if (s->size() > 0) {
-				heap.insert(SliceValue(s));
+				heap.push(SliceValue(s));
 			}
 		}
 		
 		while (!heap.empty()) {
-			auto itrFront = heap.begin();
-			SliceValue front = *itrFront;
+			SliceValue front = std::move(heap.top());
 			
 			// Pop min element from heap into dest
 			*(dest++) = front.get();
-			heap.erase(itrFront);
+			heap.pop();
 			
 			{
 				// Advance read index and move the next element into the heap
 				
 				front.iRead += 1;
 				if (front.iRead < front.pSlice->size()) {
-					heap.insert(std::move(front));
+					heap.push(std::move(front));
 				}
 			}
 		}
