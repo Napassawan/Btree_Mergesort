@@ -169,6 +169,8 @@ template<typename T> void WorkGeneric(SortType sort, const FileReader& file)
 			std::cout << i; */
 			
 			PerformSort(sort, data);
+
+			timer.AddDataPoint();
 		}
 		std::cout << "\n";
 		

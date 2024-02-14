@@ -21,8 +21,10 @@ PerformanceTimer::PerformanceTimer()
 }
 PerformanceTimer::~PerformanceTimer() {}
 
-void PerformanceTimer::_CollectCpuStat(Stat* out)
+PerformanceTimer::Stat PerformanceTimer::_CollectCpuStat()
 {
+	Stat res;
+
 #ifdef WINDOWS
 
 	std::vector<SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION> spt(countCPU_);
@@ -35,19 +37,19 @@ void PerformanceTimer::_CollectCpuStat(Stat* out)
 	// spt values are in 100ns intervals
 
 	constexpr uint64_t CLK_DIV = 10'000'000u / CLOCKS_PER_SEC;
-
-	out->total_ = { 0, 0, 0, 0 };
-	out->cores_.resize(countCPU_);
+	
+	res.total_ = { 0, 0, 0, 0 };
+	res.cores_.resize(countCPU_);
 
 	for (size_t i = 0; i < countCPU_; ++i) {
 		uint64_t sys = (spt[i].KernelTime.QuadPart - spt[i].IdleTime.QuadPart) / CLK_DIV,
 		         user = spt[i].UserTime.QuadPart / CLK_DIV,
 		         idle = spt[i].IdleTime.QuadPart / CLK_DIV;
 
-		out->total_.sys += (out->cores_[i].sys = sys);
-		out->total_.user += (out->cores_[i].user = user);
-		out->total_.idle += (out->cores_[i].idle = idle);
-		out->total_.total += (out->cores_[i].total = sys + user + idle);
+		res.total_.sys += (res.cores_[i].sys = sys);
+		res.total_.user += (res.cores_[i].user = user);
+		res.total_.idle += (res.cores_[i].idle = idle);
+		res.total_.total += (res.cores_[i].total = sys + user + idle);
 	}
 
 #else
@@ -55,7 +57,7 @@ void PerformanceTimer::_CollectCpuStat(Stat* out)
 	std::ifstream stat("/proc/stat");
 	if (!stat.is_open()) throw MyException("Open proc/stat failed");
 
-	out->cores_.resize(countCPU_);
+	res.cores_.resize(countCPU_);
 
 	std::string line;
 	while (std::getline(stat, line)) {
@@ -66,13 +68,13 @@ void PerformanceTimer::_CollectCpuStat(Stat* out)
 
 		// Line must start with "cpu"
 		if (head.find("cpu") == 0) {
-			CpuData* target = &out->total_;
+			CpuData* target = &res.total_;
 
 			// cpu -> total time
 			// cpu0, cpu1, cpu2, ... -> time per core
 			if (head.size() > 3) {
 				int coreId = strtol(head.c_str() + 3, nullptr, 10);
-				target = &out->cores_[coreId];
+				target = &res.cores_[coreId];
 			}
 
 			auto times = std::vector(
@@ -89,6 +91,8 @@ void PerformanceTimer::_CollectCpuStat(Stat* out)
 	}
 
 #endif
+
+	return res;
 }
 
 void PerformanceTimer::Start()
@@ -96,19 +100,28 @@ void PerformanceTimer::Start()
 	if (bRunning_)
 		throw MyException("Timer already running");
 	bRunning_ = true;
-
-	_CollectCpuStat(&start_);
+	
+	stats_.clear();
+	
+	_AddStat(_CollectCpuStat());
 }
 void PerformanceTimer::Stop()
 {
 	if (!bRunning_)
 		throw MyException("Timer not started yet");
 	bRunning_ = false;
-
-	_CollectCpuStat(&end_);
+	
+	_AddStat(_CollectCpuStat());
+}
+void PerformanceTimer::AddDataPoint()
+{
+	if (!bRunning_)
+		throw MyException("Timer not started yet");
+	
+	_AddStat(_CollectCpuStat());
 }
 
-void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose)
+void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose) const
 {
 	if (bRunning_)
 		throw MyException("Timer not stopped yet");
@@ -133,7 +146,7 @@ void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose)
 		}
 		else {
 			sprintf(tmp, 
-				"%12" PRIu64 ", %12" PRIu64 ", %12" PRIu64 ", %12" PRIu64 "\n",
+				"%10" PRIu64 ", %10" PRIu64 ", %10" PRIu64 ", %10" PRIu64 "\n",
 				time.total, time.user, time.sys, time.idle);
 			out << tmp;
 		}
@@ -144,24 +157,29 @@ void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose)
 			_Print(i, stat.cores_[i]);
 	};
 
+	const auto& begin = stats_.front();
+	const auto& end = stats_.back();
+	
 	if (verbose)
-		out << "Diff====================\n";
-	_PrintStatAll(end_ - start_);
+		out << "Total====================\n";
+	_PrintStatAll(end - begin);
 
 	if (verbose) {
-		// Also print start and end data individually
-
-		out << "\nStart===================\n";
-		_PrintStatAll(start_);
-
-		out << "\nEnd=====================\n";
-		_PrintStatAll(end_);
+		// Also print each data point
+		
+		// Don't print the first and the last
+		for (size_t i = 1; i < stats_.size() - 1; ++i) {
+			out << "\nRun" << i << "===================\n";
+			
+			// Print diff since the previous point
+			_PrintStatAll(stats_[i] - stats_[i - 1]);
+		}
 	}
-
+	
 	out << std::endl;
 }
 
-PerformanceTimer::CpuData PerformanceTimer::CpuData::operator-(const CpuData& obj)
+PerformanceTimer::CpuData PerformanceTimer::CpuData::operator-(const CpuData& obj) const
 {
 	return CpuData {
 		total - obj.total,
@@ -171,7 +189,7 @@ PerformanceTimer::CpuData PerformanceTimer::CpuData::operator-(const CpuData& ob
 	};
 }
 
-PerformanceTimer::Stat PerformanceTimer::Stat::operator-(const Stat& obj)
+PerformanceTimer::Stat PerformanceTimer::Stat::operator-(const Stat& obj) const
 {
 	Stat res;
 	res.total_ = total_ - obj.total_;

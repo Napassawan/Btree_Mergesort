@@ -34,23 +34,22 @@ class PerformanceTimer {
 		uint64_t sys;
 		uint64_t idle;
 
-		CpuData operator-(const CpuData& obj);
+		CpuData operator-(const CpuData& obj) const;
 	};
 	struct Stat {
 		CpuData total_;
 		std::vector<CpuData> cores_;
 
-		Stat operator-(const Stat& obj);
+		Stat operator-(const Stat& obj) const;
 	};
 
 	uint32_t countCPU_;
-
-	Stat start_;
-	Stat end_;
+	
+	std::vector<Stat> stats_;
 	bool bRunning_;
 
-	void _CollectCpuStat(Stat* out);
-
+	Stat _CollectCpuStat();
+	void _AddStat(const Stat& stat) { stats_.push_back(stat); }
 public:
 	PerformanceTimer();
 	~PerformanceTimer();
@@ -58,7 +57,9 @@ public:
 	void Start();
 	void Stop();
 
-	void Report(std::ostream& out, bool compact = false, bool verbose = false);
+	void AddDataPoint();
+	
+	void Report(std::ostream& out, bool compact = false, bool verbose = false) const;
 };
 
 class MyException : public std::runtime_error {
@@ -67,7 +68,7 @@ public:
 	MyException() : MyException("") {}
 	MyException(const char* msg) : MyException(std::string(msg)) {}
 	MyException(const std::string& msg) : runtime_error(msg) { msg_ = msg; }
-
+	
 	const std::string& GetMessage() { return msg_; }
 	const char* what() { return msg_.c_str(); }
 };
