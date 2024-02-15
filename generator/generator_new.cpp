@@ -24,7 +24,7 @@ using std::unique_ptr;
 
 // ------------------------------------------------------------------------------
 
-constexpr const float Opt_FewUnique_UniquePercentage = 0.05; // 5%
+constexpr const float Opt_FewUnique_UniquePercentage = 0.01; // 1%
 
 constexpr const float Opt_NSorted_SwapPercentage = 0.05; // 5%
 
@@ -244,7 +244,7 @@ template<typename T> void GenerateFewUnique(vector<T>& res)
 
 	// Guarantee at least 2 uniques
 	size_t countUnique = std::max<size_t>(2, res.size() * Opt_FewUnique_UniquePercentage);
-
+	
 	// Generate array where len(tmp) < len(res)
 	vector<T> tmp(countUnique);
 	for (size_t i = 0; i < countUnique; ++i) {
