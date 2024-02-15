@@ -156,6 +156,9 @@ template<typename T> void WorkGeneric(SortType sort, const FileReader& file)
 	printf("Repeat: %zu\n", runCount);
 
 	{
+		// Run once to reduce the effects of the cache on the first real run
+		PerformSort(sort, data);
+		
 		timer.Start();
 
 		//std::cout << "Run ";
