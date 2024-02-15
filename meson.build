@@ -59,7 +59,7 @@ if build_benchmark
 
 	srcs_main = ['Benchmark/timer.cpp', 'Benchmark/main.cpp']
 
-	executable('perf_benchmark', 
+	executable('perf_bench', 
 		sources : srcs_main + srcs_common,
 		include_directories: incs,
 		dependencies : deps)
