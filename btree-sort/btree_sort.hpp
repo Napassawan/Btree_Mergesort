@@ -78,7 +78,7 @@ namespace btreesort {
 			}
 		};
 		
-		using SliceRefRange = std::array<typename std::vector<const Slice*>::const_iterator, 2>;
+		using SliceRefRange = std::array<typename std::vector<Slice>::const_iterator, 2>;
 		
 		class SliceValue {
 		public:
@@ -110,7 +110,7 @@ namespace btreesort {
 		std::vector<std::array<size_t, 3>> _GenerateDivisions(size_t count, size_t divs);
 		
 		void _SortBucket(size_t id, IterPair range);
-		void _ShuffleSlices(Iter dest, const std::vector<const Slice*>& slices);
+		void _ShuffleSlices(Iter dest, const std::vector<Slice>& slices);
 		void _MultiwayHeap(Iter dest, SliceRefRange slices);
 		void _InsertionSortRange(Iter begin, Iter end);
 	};
@@ -155,29 +155,34 @@ namespace btreesort {
 			}
 			
 			{
-				// Load slices from min to max
+				std::vector<IterVal> dataNew;
+				dataNew.reserve(dataCount);
 				
-				std::vector<const Slice*> slicesSorted;
+				// Load slices from min to max into the new data
+				
+				std::vector<Slice> slicesSorted;
 				slicesSorted.reserve(setSlices.size());
 				
-				for (const Slice& s : setSlices) {
-					slicesSorted.push_back(&s);
-				}
-				
 				{
-					std::vector<IterVal> dataNew;
-					dataNew.reserve(dataCount);
-					dataNew.resize(dataCount);
-					
-					_ShuffleSlices(dataNew.begin(), slicesSorted);
-					_InsertionSortRange(dataNew.begin(), dataNew.end());
-					
-					for (size_t i = 0; i < dataCount; ++i) {
-						*(itrBegin + i) = dataNew[i];
+					size_t i = 0;
+					for (const Slice& s : setSlices) {
+						auto before = dataNew.end();
+						
+						dataNew.insert(dataNew.end(), s.range[0], s.range[1]);
+						
+						Slice ns(s.id, { before, dataNew.end() });
+						slicesSorted.push_back(std::move(ns));
+						
+						++i;
 					}
 				}
-				//_ShuffleSlices(itrBegin, slicesSorted);
-				//_InsertionSortRange(itrBegin, itrEnd);
+				
+				_ShuffleSlices(itrBegin, slicesSorted);
+				_InsertionSortRange(itrBegin, itrEnd);
+				
+				/* for (size_t i = 0; i < dataCount; ++i) {
+					*(itrBegin + i) = dataNew[i];
+				} */
 			}
 		}
 	}
@@ -196,7 +201,7 @@ namespace btreesort {
 		
 		return res;
 	}
-
+	
 	TEMPL void DEF_BTreeSort _SortBucket(size_t id, IterPair bucket)
 	{
 		auto& [itrBegin, itrEnd] = bucket;
@@ -217,7 +222,7 @@ namespace btreesort {
 			}
 		}
 	}
-	TEMPL void DEF_BTreeSort _ShuffleSlices(Iter dest, const std::vector<const Slice*>& slices)
+	TEMPL void DEF_BTreeSort _ShuffleSlices(Iter dest, const std::vector<Slice>& slices)
 	{
 		size_t nProcessors = Settings::get().nProcessors;
 		size_t nSlices = Settings::get().nSubBuckets;
@@ -242,7 +247,7 @@ namespace btreesort {
 					// Sum the amount of all data in this slice range
 					size_t count = 0;
 					for (auto itr = itrSliceBeg; itr != itrSliceEnd; ++itr) {
-						count += (*itr)->size();
+						count += (*itr).size();
 					}
 					
 					shufParams[i] = _ShufParam {
@@ -268,7 +273,7 @@ namespace btreesort {
 			std::greater<SliceValue>> heap;
 		
 		for (auto itr = slices[0]; itr != slices[1]; ++itr) {
-			const Slice* s = *itr;
+			const Slice* s = &*itr;
 			if (s->size() > 0) {
 				heap.push(SliceValue(s));
 			}

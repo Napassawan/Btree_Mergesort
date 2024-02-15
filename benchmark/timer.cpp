@@ -163,7 +163,7 @@ void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose) con
 	if (verbose)
 		out << "Total====================\n";
 	_PrintStatAll(end - begin);
-
+	
 	if (verbose) {
 		// Also print each data point
 		
