@@ -193,12 +193,12 @@ namespace btreesort {
 						// The final processor can go f itself I think
 						if (i != nProcessors - 1) {
 							auto sItr = itrBegin + off;
-							//_QuicksortRange(sItr + begin, sItr + end);
-							_InsertionSortRange(sItr + begin, sItr + end);
+							_QuicksortRange(sItr + begin, sItr + end);
+							//_InsertionSortRange(sItr + begin, sItr + end);
 						}
 					}
-					
-					_InsertionSortRange(itrBegin, itrEnd);
+
+					_QuicksortRange(itrBegin, itrEnd);
 				}
 				
 				/* for (size_t i = 0; i < dataCount; ++i) {
