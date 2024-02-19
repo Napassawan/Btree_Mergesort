@@ -53,9 +53,10 @@ namespace btreesort {
 			IterPair range;
 			size_t count;
 			IterVal median;
-			
+			Comparator comp;
+
 			Slice() = default;
-			Slice(size_t id, IterPair range) : id(id), range(range)
+			Slice(size_t id, IterPair range, Comparator comp) : id(id), range(range), comp(comp)
 			{
 				count = std::distance(range[0], range[1]);
 				median = get(size() / 2);
@@ -68,7 +69,7 @@ namespace btreesort {
 			//bool operator==(const Slice& o) const { return median == o.median; }
 			bool operator<(const Slice& o) const { 
 				if (median != o.median)
-					return median < o.median;
+					return comp(median, o.median);
 				return id < o.id;
 			}
 			bool operator==(const Slice& o) const { 
@@ -83,15 +84,17 @@ namespace btreesort {
 		class SliceValue {
 		public:
 			const Slice* pSlice;
+			Comparator comp;
 			size_t iRead;
 			
 			SliceValue() = default;
-			SliceValue(const Slice* pSlice) : pSlice(pSlice), iRead(0) {}
-			
+			SliceValue(const Slice* pSlice, Comparator comp) : 
+				pSlice(pSlice), iRead(0), comp(comp) {}
+
 			IterVal get() const { return pSlice->get(iRead); }
-			
-			bool operator<(const SliceValue& o) const { return get() < o.get(); }
-			bool operator>(const SliceValue& o) const { return get() > o.get(); }
+
+			bool operator<(const SliceValue& o) const { return comp(get(), o.get()); }
+			bool operator>(const SliceValue& o) const { return !comp(get(), o.get()); }
 			bool operator==(const SliceValue& o) const { return get() == o.get(); }
 		};
 	private:
@@ -112,6 +115,8 @@ namespace btreesort {
 		void _SortBucket(size_t id, IterPair range);
 		void _ShuffleSlices(Iter dest, const std::vector<Slice>& slices);
 		void _MultiwayHeap(Iter dest, SliceRefRange slices);
+		
+		void _QuicksortRange(Iter begin, Iter end);
 		void _InsertionSortRange(Iter begin, Iter end);
 	};
 
@@ -137,7 +142,7 @@ namespace btreesort {
 	TEMPL void DEF_BTreeSort Sort()
 	{
 		size_t nProcessors = Settings::get().nProcessors;
-		size_t nSlices = Settings::get().nSubBuckets;
+		//size_t nSlices = Settings::get().nSubBuckets;
 		
 		auto& [itrBegin, itrEnd] = data;
 		size_t dataCount = std::distance(itrBegin, itrEnd);
@@ -170,7 +175,7 @@ namespace btreesort {
 						
 						dataNew.insert(dataNew.end(), s.range[0], s.range[1]);
 						
-						Slice ns(s.id, { before, dataNew.end() });
+						Slice ns(s.id, { before, dataNew.end() }, comp);
 						slicesSorted.push_back(std::move(ns));
 						
 						++i;
@@ -178,7 +183,23 @@ namespace btreesort {
 				}
 				
 				_ShuffleSlices(itrBegin, slicesSorted);
-				_InsertionSortRange(itrBegin, itrEnd);
+				//_InsertionSortRange(itrBegin, itrEnd);
+				
+				{
+					size_t off = dataCount / nProcessors / 2;
+					
+#pragma omp parallel for
+					for (auto& [i, begin, end] : buckets) {
+						// The final processor can go f itself I think
+						if (i != nProcessors - 1) {
+							auto sItr = itrBegin + off;
+							//_QuicksortRange(sItr + begin, sItr + end);
+							_InsertionSortRange(sItr + begin, sItr + end);
+						}
+					}
+					
+					_InsertionSortRange(itrBegin, itrEnd);
+				}
 				
 				/* for (size_t i = 0; i < dataCount; ++i) {
 					*(itrBegin + i) = dataNew[i];
@@ -206,8 +227,7 @@ namespace btreesort {
 	{
 		auto& [itrBegin, itrEnd] = bucket;
 		
-		// Maybe replace with quicksort rather than STD introsort?
-		std::sort(itrBegin, itrEnd, comp);
+		_QuicksortRange(itrBegin, itrEnd);
 		
 		size_t nSlices = Settings::get().nSubBuckets;
 		auto partitions = _GenerateDivisions(std::distance(itrBegin, itrEnd), nSlices);
@@ -217,7 +237,7 @@ namespace btreesort {
 			OmpLock lock(om_writeLock); // Lock setSlices for writing
 			
 			for (auto& [i, begin, end] : partitions) {
-				Slice s(id * nSlices + i, { itrBegin + begin, itrBegin + end });
+				Slice s(id * nSlices + i, { itrBegin + begin, itrBegin + end }, comp);
 				setSlices.insert(std::move(s));
 			}
 		}
@@ -275,7 +295,7 @@ namespace btreesort {
 		for (auto itr = slices[0]; itr != slices[1]; ++itr) {
 			const Slice* s = &*itr;
 			if (s->size() > 0) {
-				heap.push(SliceValue(s));
+				heap.push(SliceValue(s, comp));
 			}
 		}
 		
@@ -296,7 +316,7 @@ namespace btreesort {
 			}
 		}
 	}
-	
+
 	TEMPL void DEF_BTreeSort _InsertionSortRange(Iter begin, Iter end)
 	{
 		// Copied from std::__insertion_sort
@@ -316,7 +336,7 @@ namespace btreesort {
 				Iter next = i;
 				--next;
 				
-				while (comp(val, *next)) {
+				while (next >= begin && comp(val, *next)) {
 					*i = std::move(*next);
 					i = next;
 					--next;
@@ -325,6 +345,22 @@ namespace btreesort {
 				*i = std::move(val);
 			}
 		}
+	}
+	TEMPL void DEF_BTreeSort _QuicksortRange(Iter begin, Iter end)
+	{
+		if (begin == end) return;
+		
+		IterVal pivot = *std::next(begin, std::distance(begin, end) / 2);
+		
+		Iter m1 = std::partition(begin, end, [&](const IterVal& x) {
+			return comp(x, pivot);
+		});
+		Iter m2 = std::partition(m1, end, [&](const IterVal& x) {
+			return !comp(pivot, x);
+		});
+		
+		_QuicksortRange(begin, m1);
+		_QuicksortRange(m2, end);
 	}
 
 #undef TEMPL
