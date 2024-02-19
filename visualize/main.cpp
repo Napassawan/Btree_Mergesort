@@ -98,27 +98,29 @@ int main(int argc, char** argv) {
 			std::less<TypeData>());
 		btreesort.Sort();
 	}
-	
+
+	bool display = true;
+
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 		
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
-		
-		/* {
-			ImGui::SetNextWindowSize(ImVec2(1700, 900), ImGuiCond_Appearing);
-			ImGui::Begin("Data original");
-			
-			RenderData(g_dataOriginal);
-			
-			ImGui::End();
-		} */
+
 		{
 			ImGui::SetNextWindowSize(ImVec2(1700, 900), ImGuiCond_Appearing);
-			ImGui::Begin("Data sorted");
-			
-			RenderData(g_dataSorted);
+
+			ImGui::Begin("Data");
+
+			if (ImGui::Button("Toggle")) display = !display;
+
+			if (!display) {
+				RenderData(g_dataOriginal);
+			}
+			else {
+				RenderData(g_dataSorted);
+			}
 			
 			ImGui::End();
 		}
