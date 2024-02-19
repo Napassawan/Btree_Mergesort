@@ -38,10 +38,10 @@ public:
 	DataGenerator();
 	T operator()();
 };
-template<typename T> void GenerateRandom(vector<T>& res);
-template<typename T> void GenerateReversed(vector<T>& res);
-template<typename T> void GenerateFewUnique(vector<T>& res);
-template<typename T> void GenerateNearlySorted(vector<T>& res);
+template<typename T> void GenerateRandom(vector<T>& res, size_t amount);
+template<typename T> void GenerateReversed(vector<T>& res, size_t amount);
+template<typename T> void GenerateFewUnique(vector<T>& res, size_t amount);
+template<typename T> void GenerateNearlySorted(vector<T>& res, size_t amount);
 
 // Global rand
 std::mt19937_64 mt64((uint64_t)time(nullptr) * 2);
@@ -163,118 +163,115 @@ public:
 
 template<typename T> void GenerateDataFromArrangement(size_t count, DataArrangeType arrangement)
 {
-	constexpr size_t MAX_PER_IT = 1000000;
+	vector<T> data;
+	data.reserve(count);
 
-	auto _DoGenerateData = [&](std::function<void(const vector<T>&)> fnOutput) {
-		vector<T> data;
-
-		size_t remain = count;
-		do {
-			size_t work = std::min(remain, MAX_PER_IT);
-
-			data.resize(work);
-
-			switch (arrangement) {
-			case DataArrangeType::Random:
-				GenerateRandom<T>(data);
-				break;
-			case DataArrangeType::Reversed:
-				GenerateReversed<T>(data);
-				break;
-			case DataArrangeType::FewUnique:
-				GenerateFewUnique<T>(data);
-				break;
-			case DataArrangeType::NearlySorted:
-				GenerateNearlySorted<T>(data);
-				break;
-			default: break;
-			}
-
-			fnOutput(data);
-
-			remain -= work;
-		} while (remain > 0);
-	};
-
-	if (binaryOutput.empty()) {
-		_DoGenerateData([](const vector<T>& data) {
+	switch (arrangement) {
+	case DataArrangeType::Random:
+		GenerateRandom<T>(data, count);
+		break;
+	case DataArrangeType::Reversed:
+		GenerateReversed<T>(data, count);
+		break;
+	case DataArrangeType::FewUnique:
+		GenerateFewUnique<T>(data, count);
+		break;
+	case DataArrangeType::NearlySorted:
+		GenerateNearlySorted<T>(data, count);
+		break;
+	default: break;
+	}
+	
+	{
+		if (binaryOutput.empty()) {
 			for (const T& i : data) {
 				std::cout << i << " ";
 			}
-		});
-	}
-	else {
-		std::ofstream fout(binaryOutput, std::ios::binary);
-		if (!fout.is_open())
-			throw string("Failed to open file for writing");
+		}
+		else {
+			std::ofstream fout(binaryOutput, std::ios::binary);
+			if (!fout.is_open()) throw string("Failed to open file for writing");
+			
+			{
+				constexpr size_t MAX_PER_IT = 10000000;
+				
+				size_t remain = count;
+				size_t read = 0;
+				do {
+					size_t now = std::min(remain, MAX_PER_IT);
 
-		_DoGenerateData([&fout](const vector<T>& data) {
-			fout.write((const char*)data.data(), sizeof(T) * data.size());
-		});
-
-		fout.flush();
-		fout.close();
+					fout.write((const char*)(&data[read]), sizeof(T) * now);
+					fout.flush();
+					
+					remain -= now;
+					read += now;
+				} while (remain > 0);
+			}
+			
+			fout.close();
+		}
 	}
 }
 
-template<typename T> void GenerateRandom(vector<T>& res)
+template<typename T> void GenerateRandom(vector<T>& res, size_t amount)
 {
 	DataGenerator<T> generator;
 
 	// Generate data
-	for (size_t i = 0; i < res.size(); ++i) {
-		res[i] = generator();
+	for (size_t i = 0; i < amount; ++i) {
+		res.push_back(generator());
 	}
 };
-template<typename T> void GenerateReversed(vector<T>& res)
+template<typename T> void GenerateReversed(vector<T>& res, size_t amount)
 {
 	DataGenerator<T> generator;
 
 	// Generate data
-	for (size_t i = 0; i < res.size(); ++i) {
-		res[i] = generator();
+	for (size_t i = 0; i < amount; ++i) {
+		res.push_back(generator());
 	}
 
 	// Sort descending
 	std::sort(std::execution::par, res.begin(), res.end(), std::greater<T>());
 };
-template<typename T> void GenerateFewUnique(vector<T>& res)
+template<typename T> void GenerateFewUnique(vector<T>& res, size_t amount)
 {
 	DataGenerator<T> generator;
 
 	// Guarantee at least 2 uniques
-	size_t countUnique = std::max<size_t>(2, res.size() * Opt_FewUnique_UniquePercentage);
-	
+	size_t countUnique = std::max<size_t>(2, amount * Opt_FewUnique_UniquePercentage);
+
 	// Generate array where len(tmp) < len(res)
-	vector<T> tmp(countUnique);
+	vector<T> tmp;
+	tmp.reserve(countUnique);
 	for (size_t i = 0; i < countUnique; ++i) {
-		tmp[i] = generator();
+		tmp.push_back(generator());
 	}
 
 	// Randomly choose from tmp to fill into output array
-	for (size_t i = 0; i < res.size(); ++i) {
-		res[i] = tmp[mt64() % countUnique];
+	for (size_t i = 0; i < amount; ++i) {
+		res.push_back(mt64() % countUnique);
 	}
 };
-template<typename T> void GenerateNearlySorted(vector<T>& res)
+template<typename T> void GenerateNearlySorted(vector<T>& res, size_t amount)
 {
 	DataGenerator<T> generator;
 
 	// Guarantee at least 1 swap
-	size_t countSwap = std::max<size_t>(1, res.size() * Opt_NSorted_SwapPercentage);
+	size_t countSwap = std::max<size_t>(1, amount * Opt_NSorted_SwapPercentage);
 
 	// Generate data
-	for (size_t i = 0; i < res.size(); ++i) {
-		res[i] = generator();
+	for (size_t i = 0; i < amount; ++i) {
+		res.push_back(generator());
 	}
 
 	// Sort ascending
 	std::sort(std::execution::par, res.begin(), res.end(), std::less<T>());
-
+	
 	// Then randomly swap some elements
 	for (size_t i = 0; i < countSwap; ++i) {
-		size_t swapA = mt64() % res.size();
-		size_t swapB = mt64() % res.size();
+		size_t swapA = mt64() % amount;
+		size_t swapB = mt64() % amount;
 		std::swap(res[swapA], res[swapB]);
 	}
 };
