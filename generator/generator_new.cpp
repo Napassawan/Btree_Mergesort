@@ -250,7 +250,7 @@ template<typename T> void GenerateFewUnique(vector<T>& res, size_t amount)
 
 	// Randomly choose from tmp to fill into output array
 	for (size_t i = 0; i < amount; ++i) {
-		res.push_back(mt64() % countUnique);
+		res.push_back(tmp[mt64() % countUnique]);
 	}
 };
 template<typename T> void GenerateNearlySorted(vector<T>& res, size_t amount)
