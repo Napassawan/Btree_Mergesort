@@ -27,6 +27,14 @@ template<typename T> using set_t = btree::set<T>;
 
 // ------------------------------------------------------------------------------
 
+template<typename Iter, typename Comparator>
+void bs_QuickSort(Iter begin, Iter end, Comparator comp);
+
+template<typename Iter, typename Comparator>
+void bs_InsertionSort(Iter begin, Iter end, Comparator comp);
+
+// ------------------------------------------------------------------------------
+
 namespace btreesort {
 	struct Settings {
 		size_t nProcessors;
@@ -115,9 +123,6 @@ namespace btreesort {
 		void _SortBucket(size_t id, IterPair range);
 		void _ShuffleSlices(Iter dest, const std::vector<Slice>& slices);
 		void _MultiwayHeap(Iter dest, SliceRefRange slices);
-		
-		void _QuicksortRange(Iter begin, Iter end);
-		void _InsertionSortRange(Iter begin, Iter end);
 	};
 
 	// ------------------------------------------------------------------------------
@@ -183,7 +188,6 @@ namespace btreesort {
 				}
 				
 				_ShuffleSlices(itrBegin, slicesSorted);
-				//_InsertionSortRange(itrBegin, itrEnd);
 				
 				{
 					size_t off = dataCount / nProcessors / 2;
@@ -193,17 +197,15 @@ namespace btreesort {
 						// The final processor can go f itself I think
 						if (i != nProcessors - 1) {
 							auto sItr = itrBegin + off;
-							_QuicksortRange(sItr + begin, sItr + end);
-							//_InsertionSortRange(sItr + begin, sItr + end);
+							
+							//bs_QuickSort(sItr + begin, sItr + end, comp);
+							bs_InsertionSort(sItr + begin, sItr + end, comp);
 						}
 					}
-
-					_QuicksortRange(itrBegin, itrEnd);
+					
+					bs_QuickSort(itrBegin, itrEnd, comp);
+					//bs_InsertionSort(itrBegin, itrEnd, comp);
 				}
-				
-				/* for (size_t i = 0; i < dataCount; ++i) {
-					*(itrBegin + i) = dataNew[i];
-				} */
 			}
 		}
 	}
@@ -227,7 +229,7 @@ namespace btreesort {
 	{
 		auto& [itrBegin, itrEnd] = bucket;
 		
-		_QuicksortRange(itrBegin, itrEnd);
+		bs_QuickSort(itrBegin, itrEnd, comp);
 		
 		size_t nSlices = Settings::get().nSubBuckets;
 		auto partitions = _GenerateDivisions(std::distance(itrBegin, itrEnd), nSlices);
@@ -317,52 +319,6 @@ namespace btreesort {
 		}
 	}
 
-	TEMPL void DEF_BTreeSort _InsertionSortRange(Iter begin, Iter end)
-	{
-		// Copied from std::__insertion_sort
-		
-		if (begin == end) return;
-		
-		for (Iter i = begin + 1; i != end; ++i) {
-			if (comp(*i, *begin)) {
-				IterVal val = std::move(*i);
-				
-				std::move_backward(begin, i, i + 1);
-				*begin = std::move(val);
-			}
-			else {
-				IterVal val = std::move(*i);
-				
-				Iter next = i;
-				--next;
-				
-				while (next >= begin && comp(val, *next)) {
-					*i = std::move(*next);
-					i = next;
-					--next;
-				}
-				
-				*i = std::move(val);
-			}
-		}
-	}
-	TEMPL void DEF_BTreeSort _QuicksortRange(Iter begin, Iter end)
-	{
-		if (begin == end) return;
-		
-		IterVal pivot = *std::next(begin, std::distance(begin, end) / 2);
-		
-		Iter m1 = std::partition(begin, end, [&](const IterVal& x) {
-			return comp(x, pivot);
-		});
-		Iter m2 = std::partition(m1, end, [&](const IterVal& x) {
-			return !comp(pivot, x);
-		});
-		
-		_QuicksortRange(begin, m1);
-		_QuicksortRange(m2, end);
-	}
-
 #undef TEMPL
 
 	// ------------------------------------------------------------------------------
@@ -382,5 +338,37 @@ namespace btreesort {
 	{
 		static Settings s {};
 		return s;
+	}
+}
+
+// ------------------------------------------------------------------------------
+
+template<typename Iter, typename Comparator>
+void bs_QuickSort(Iter begin, Iter end, Comparator comp) {
+	using ValType = typename std::iterator_traits<Iter>::value_type;
+	
+	if (begin == end) return;
+
+	size_t dist = std::distance(begin, end);
+
+	if (dist <= 32) {
+		bs_InsertionSort(begin, end, comp);
+	}
+
+	ValType pivot = *std::next(begin, dist / 2);
+
+	Iter m1 = std::partition(begin, end, [&](const ValType& x) { return comp(x, pivot); });
+	Iter m2 = std::partition(m1, end, [&](const ValType& x) { return !comp(pivot, x); });
+	
+	bs_QuickSort(begin, m1, comp);
+	bs_QuickSort(m2, end, comp);
+}
+
+template<typename Iter, typename Comparator>
+void bs_InsertionSort(Iter begin, Iter end, Comparator comp) {
+	using ValType = typename std::iterator_traits<Iter>::value_type;
+
+	for (auto i = begin; i != end; ++i) {
+		std::rotate(std::upper_bound(begin, i, *i, comp), i, i + 1);
 	}
 }
