@@ -203,8 +203,8 @@ namespace btreesort {
 						}
 					}
 					
-					bs_QuickSort(itrBegin, itrEnd, comp);
-					//bs_InsertionSort(itrBegin, itrEnd, comp);
+					//bs_QuickSort(itrBegin, itrEnd, comp);
+					bs_InsertionSort(itrBegin, itrEnd, comp);
 				}
 			}
 		}
@@ -344,13 +344,14 @@ namespace btreesort {
 // ------------------------------------------------------------------------------
 
 template<typename Iter, typename Comparator>
-void bs_QuickSort(Iter begin, Iter end, Comparator comp) {
+void bs_QuickSort(Iter begin, Iter end, Comparator comp)
+{
 	using ValType = typename std::iterator_traits<Iter>::value_type;
 	
 	if (begin == end) return;
 
 	size_t dist = std::distance(begin, end);
-
+	
 	if (dist <= 32) {
 		bs_InsertionSort(begin, end, comp);
 	}
@@ -364,11 +365,39 @@ void bs_QuickSort(Iter begin, Iter end, Comparator comp) {
 	bs_QuickSort(m2, end, comp);
 }
 
-template<typename Iter, typename Comparator>
-void bs_InsertionSort(Iter begin, Iter end, Comparator comp) {
-	using ValType = typename std::iterator_traits<Iter>::value_type;
-
-	for (auto i = begin; i != end; ++i) {
-		std::rotate(std::upper_bound(begin, i, *i, comp), i, i + 1);
+// https://github.com/karottc/sgi-stl/blob/b3e4ad93382ac8b47ba1eb8b409917ea1ff8a8b5/stl_algo.h#L1300
+template<typename Iter, 
+	typename ValType = typename std::iterator_traits<Iter>::value_type,
+	typename Comparator>
+void bs_UnguardedLinearInsert(Iter last, ValType val, Comparator comp)
+{
+	auto next = last;
+	--next;
+	
+	while (val < *next) {
+		*last = *next;
+		last = next;
+		--next;
 	}
+
+	*last = val;
+}
+template<typename Iter, typename Comparator>
+void bs_LinearInsert(Iter begin, Iter end, Comparator comp)
+{
+	auto val = *end;
+	if (comp(val, *begin)) {
+		std::copy_backward(begin, end, end + 1);
+		*begin = val;
+	}
+	else
+		bs_UnguardedLinearInsert(end, val, comp);
+}
+template<typename Iter, typename Comparator>
+void bs_InsertionSort(Iter begin, Iter end, Comparator comp)
+{
+	if (begin == end) return;
+	
+	for (auto i = begin + 1; i != end; ++i)
+		bs_LinearInsert(begin, i, comp);
 }
