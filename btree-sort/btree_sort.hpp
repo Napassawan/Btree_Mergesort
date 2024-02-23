@@ -79,19 +79,17 @@ namespace btreesort {
 		size_t nMinPerSlice;
 		size_t nParallelCutoff;
 		size_t nQuickSortCutoff;
-		
+		size_t nMaxHeapSize;
+
 		Settings();
 		
 		static const Settings& get();
 	};
 
 	// ------------------------------------------------------------------------------
-
-	template<typename Iter, typename Comparator>
+	
+	template<bool ISORT = true, typename Iter, typename Comparator>
 	void bs_QuickSort(Iter begin, Iter end, Comparator comp, size_t cutoff);
-
-	template<typename Iter, typename Comparator>
-	void bs_QuickSort_Partial(Iter begin, Iter end, Comparator comp);
 
 	template<typename Iter, typename Comparator>
 	void bs_InsertionSort(Iter begin, Iter end, Comparator comp);
@@ -193,7 +191,7 @@ namespace btreesort {
 	{
 		omp_destroy_lock(&om_writeLock);
 	}
-
+	
 	TEMPL void DEF_BTreeSort Sort()
 	{
 		size_t nProcessors = Settings::get().nProcessors;
@@ -239,10 +237,7 @@ namespace btreesort {
 				
 				_ShuffleSlices(itrBegin, slicesSorted);
 				
-				{
-					bs_QuickSort_Partial(itrBegin, itrEnd, comp);
-					bs_InsertionSort(itrBegin, itrEnd, comp);
-				}
+				bs_InsertionSort(itrBegin, itrEnd, comp);
 				
 				/* for (size_t i = 0; i < dataCount; ++i) {
 					*(itrBegin + i) = dataNew[i];
@@ -269,10 +264,15 @@ namespace btreesort {
 	TEMPL void DEF_BTreeSort _SortBucket(size_t id, IterPair bucket)
 	{
 		auto& [itrBegin, itrEnd] = bucket;
+		size_t count = std::distance(itrBegin, itrEnd);
 		
-		bs_QuickSort(itrBegin, itrEnd, comp, 64);
-		
-		size_t nSlices = Settings::get().nSubBuckets;
+		size_t heapSize = Settings::get().nMaxHeapSize;
+		bs_QuickSort<false>(itrBegin, itrEnd, comp, heapSize);
+
+		size_t nSlices = count / heapSize;
+		if (nSlices < Settings::get().nSubBuckets)
+			nSlices = Settings::get().nSubBuckets;
+
 		auto partitions = _GenerateDivisions(std::distance(itrBegin, itrEnd), nSlices);
 		
 		// Partition slices
@@ -280,7 +280,7 @@ namespace btreesort {
 			OmpLock lock(om_writeLock); // Lock setSlices for writing
 			
 			for (auto& [i, begin, end] : partitions) {
-				Slice s(id * nSlices + i, { itrBegin + begin, itrBegin + end }, comp);
+				Slice s(setSlices.size(), { itrBegin + begin, itrBegin + end }, comp);
 				setSlices.insert(std::move(s));
 			}
 		}
@@ -297,8 +297,8 @@ namespace btreesort {
 				size_t placement;
 				size_t count;
 			};
-			std::vector<_ShufParam> shufParams(nSlices);
-
+			std::vector<_ShufParam> shufParams(nProcessors);
+			
 			auto sliceDivs = _GenerateDivisions(slices.size(), shufParams.size());
 			
 			{
@@ -373,6 +373,7 @@ namespace btreesort {
 		nMinPerSlice = 4;
 		nParallelCutoff = nProcessors * nSubBuckets * nMinPerSlice;
 		
+		nMaxHeapSize = 512;
 		nQuickSortCutoff = 1024;
 	}
 	const Settings& Settings::get()
@@ -383,57 +384,31 @@ namespace btreesort {
 	
 	// ------------------------------------------------------------------------------
 
-	template<typename Iter, typename Comparator>
+	template<bool ISORT, typename Iter, typename Comparator>
 	void bs_QuickSort(Iter begin, Iter end, Comparator comp, size_t cutoff)
 	{
 		if (begin == end) return;
 		
 		size_t dist = std::distance(begin, end);
-		if (dist <= cutoff)
-			bs_InsertionSort(begin, end, comp);
-		
-		auto pivot = *std::next(begin, dist / 2);
-		
-		Iter m1 = std::partition(begin, end, [&](const auto& x) { return comp(x, pivot); });
-		Iter m2 = std::partition(m1, end, [&](const auto& x) { return !comp(pivot, x); });
-
-		bs_QuickSort(begin, m1, comp, cutoff);
-		bs_QuickSort(m2, end, comp, cutoff);
-	}
-
-	template<typename Iter, typename Comparator>
-	void bs_QuickSort_Partial_Loop(Iter begin, Iter end, Comparator comp, size_t cutoff)
-	{
-		size_t dist = std::distance(begin, end);
-		if (dist <= cutoff)
-			return;
-		
-		auto pivot = *std::next(begin, dist / 2);
-		
-		Iter m1 = std::partition(begin, end, [&](const auto& x) { return comp(x, pivot); });
-		Iter m2 = std::partition(m1, end, [&](const auto& x) { return !comp(pivot, x); });
-		
-#pragma omp task
-		bs_QuickSort_Partial_Loop(begin, m1, comp, cutoff);
-#pragma omp task
-		bs_QuickSort_Partial_Loop(m2, end, comp, cutoff);
-	}
-	template<typename Iter, typename Comparator>
-	void bs_QuickSort_Partial(Iter begin, Iter end, Comparator comp)
-	{
-#pragma omp parallel
-		{
-#pragma omp single
-			bs_QuickSort_Partial_Loop(begin, end, comp, 
-				Settings::get().nQuickSortCutoff);
+		if constexpr (ISORT) {
+			if (dist <= cutoff)
+				bs_InsertionSort(begin, end, comp);
 		}
+		
+		auto pivot = *std::next(begin, dist / 2);
+		
+		Iter m1 = std::partition(begin, end, [&](const auto& x) { return comp(x, pivot); });
+		Iter m2 = std::partition(m1, end, [&](const auto& x) { return !comp(pivot, x); });
+
+		bs_QuickSort<ISORT>(begin, m1, comp, cutoff);
+		bs_QuickSort<ISORT>(m2, end, comp, cutoff);
 	}
 
 	// https://github.com/karottc/sgi-stl/blob/b3e4ad93382ac8b47ba1eb8b409917ea1ff8a8b5/stl_algo.h#L1300
 	template<typename Iter, 
 		typename ValType = typename std::iterator_traits<Iter>::value_type,
 		typename Comparator>
-	void bs_UnguardedLinearInsert(Iter last, ValType val, Comparator comp)
+	inline void bs_UnguardedLinearInsert(Iter last, ValType val, Comparator comp)
 	{
 		auto next = last;
 		--next;
@@ -447,7 +422,7 @@ namespace btreesort {
 		*last = val;
 	}
 	template<typename Iter, typename Comparator>
-	void bs_LinearInsert(Iter begin, Iter end, Comparator comp)
+	inline void bs_LinearInsert(Iter begin, Iter end, Comparator comp)
 	{
 		auto val = *end;
 		if (comp(val, *begin)) {
