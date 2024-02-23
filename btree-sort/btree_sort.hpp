@@ -12,18 +12,63 @@
 // ------------------------------------------------------------------------------
 
 //#define USE_STD_SET
+//#define USE_STD_HEAP
 
 #ifdef USE_STD_SET
-
-#include <set>
-template<typename T> using set_t = std::set<T>;
-
+	#include <set>
+	template<typename T> using set_t = std::set<T>;
 #else
-
-#include "cpp-btree/btree/set.h"
-template<typename T> using set_t = btree::set<T>;
-
+	#include "cpp-btree/btree/set.h"
+	template<typename T> using set_t = btree::set<T>;
 #endif
+
+namespace btreesort {
+#ifdef USE_STD_HEAP
+	template<typename ValType, typename Comparator> class MultiwaySet {
+		struct comp_reverse {
+			constexpr bool operator()(const ValType& x, const ValType& y) const
+			{
+				return !Comparator()(x, y);
+			}
+		};
+
+		std::priority_queue<ValType, std::vector<ValType>, comp_reverse> heap;
+	public:
+		MultiwaySet() = default;
+
+		void Push(const ValType& v) { heap.push(v); }
+		void Push(ValType&& v) { heap.push(std::move(v)); }
+
+		bool Empty() const { return heap.empty(); }
+
+		const ValType& Peek() const { return heap.top(); }
+		ValType Pop()
+		{
+			ValType val = std::move(Peek());
+			heap.pop();
+			return val;
+		}
+	};
+#else
+	template<typename ValType, typename Comparator> class MultiwaySet {
+		btree::multiset<ValType, Comparator> heap;
+	public:
+		MultiwaySet() = default;
+
+		void Push(const ValType& v) { heap.insert(v); }
+		void Push(ValType&& v) { heap.insert(std::move(v)); }
+
+		bool Empty() const { return heap.empty(); }
+
+		const ValType& Peek() const { return *heap.begin(); }
+		ValType Pop() {
+			ValType val = std::move(Peek());
+			heap.erase(heap.begin());
+			return val;
+		}
+	};
+#endif
+}
 
 // ------------------------------------------------------------------------------
 
@@ -108,7 +153,6 @@ namespace btreesort {
 			IterVal get() const { return pSlice->get(iRead); }
 			
 			bool operator<(const SliceValue& o) const { return comp(get(), o.get()); }
-			bool operator>(const SliceValue& o) const { return !comp(get(), o.get()); }
 			bool operator==(const SliceValue& o) const { return get() == o.get(); }
 		};
 	private:
@@ -196,19 +240,6 @@ namespace btreesort {
 				_ShuffleSlices(itrBegin, slicesSorted);
 				
 				{
-					/* size_t off = dataCount / nProcessors / 2;
-					
-#pragma omp parallel for
-					for (auto& [i, begin, end] : buckets) {
-						// The final processor can go f itself I think
-						if (i != nProcessors - 1) {
-							auto sItr = itrBegin + off;
-							
-							bs_QuickSort(sItr + begin, sItr + end, comp);
-							//bs_InsertionSort(sItr + begin, sItr + end, comp);
-						}
-					} */
-
 					bs_QuickSort_Partial(itrBegin, itrEnd, comp);
 					bs_InsertionSort(itrBegin, itrEnd, comp);
 				}
@@ -267,8 +298,8 @@ namespace btreesort {
 				size_t count;
 			};
 			std::vector<_ShufParam> shufParams(nSlices);
-			
-			auto sliceDivs = _GenerateDivisions(slices.size(), nSlices);
+
+			auto sliceDivs = _GenerateDivisions(slices.size(), shufParams.size());
 			
 			{
 				size_t placement = 0;
@@ -300,30 +331,28 @@ namespace btreesort {
 	}
 	TEMPL void DEF_BTreeSort _MultiwayHeap(Iter dest, SliceRefRange slices)
 	{
-		//multiset_t<SliceValue> heap;
-		std::priority_queue<SliceValue, std::vector<SliceValue>, 
-			std::greater<SliceValue>> heap;
+		MultiwaySet<SliceValue, std::less<SliceValue>> heap;
 		
 		for (auto itr = slices[0]; itr != slices[1]; ++itr) {
 			const Slice* s = &*itr;
 			if (s->size() > 0) {
-				heap.push(SliceValue(s, comp));
+				heap.Push(SliceValue(s, comp));
 			}
 		}
 		
-		while (!heap.empty()) {
-			SliceValue front = std::move(heap.top());
+		while (!heap.Empty()) {
+			SliceValue front = std::move(heap.Peek());
 			
 			// Pop min element from heap into dest
 			*(dest++) = front.get();
-			heap.pop();
+			heap.Pop();
 			
 			{
 				// Advance read index and move the next element into the heap
 				
 				front.iRead += 1;
 				if (front.iRead < front.pSlice->size()) {
-					heap.push(std::move(front));
+					heap.Push(std::move(front));
 				}
 			}
 		}
