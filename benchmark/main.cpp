@@ -201,9 +201,7 @@ template<typename T> void PerformSort(SortType sort, vector<T>& res)
 			__gnu_parallel::balanced_quicksort_tag());
 		break;
 	case SortType::BTreeMerge: {
-		//throw string("Not implemented");
-
-		btreesort::BTreeSort<typename vector<T>::iterator, std::less<T>> btreesort(
+		btreesort::BTreeSort btreesort(
 			res.begin(), res.end(), std::less<T>());
 		btreesort.Sort();
 		

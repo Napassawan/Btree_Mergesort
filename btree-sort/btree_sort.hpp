@@ -35,7 +35,6 @@ namespace btreesort {
 				return !Comparator()(x, y);
 			}
 		};
-
 		std::priority_queue<ValType, std::vector<ValType>, comp_reverse> heap;
 	public:
 		MultiwaySet() = default;
@@ -98,75 +97,75 @@ namespace btreesort {
 		using IterVal = typename std::iterator_traits<Iter>::value_type;
 		using IterPair = std::array<Iter, 2>;
 		
-		// TODO: Clean this mess up
-		
-		class Slice {
+		class SliceBase {
 		public:
 			size_t id;
 			IterPair range;
 			size_t count;
-			IterVal median;
-			Comparator comp;
-
-			Slice() = default;
-			Slice(size_t id, IterPair range, Comparator comp) : id(id), range(range), comp(comp)
+			
+			SliceBase() = default;
+			SliceBase(size_t id, IterPair range) : id(id), range(range)
 			{
 				count = std::distance(range[0], range[1]);
-				median = get(size() / 2);
 			}
 			
 			size_t size() const { return count; }
 			IterVal get(size_t i) const { return *(range[0] + i); }
+		};
+		class Slice : public SliceBase {
+		public:
+			IterVal median;
+			
+			Slice() : SliceBase() {}
+			Slice(size_t id, IterPair range) : SliceBase(id, range)
+			{
+				median = this->get(this->size() / 2);
+			}
 			
 			//bool operator<(const Slice& o) const { return median < o.median; }
 			//bool operator==(const Slice& o) const { return median == o.median; }
-			bool operator<(const Slice& o) const { 
+			bool operator<(const Slice& o) const
+			{
 				if (median != o.median)
-					return comp(median, o.median);
-				return id < o.id;
+					return Comparator()(median, o.median);
+				return this->id < o.id;
 			}
-			bool operator==(const Slice& o) const { 
+			bool operator==(const Slice& o) const
+			{
 				if (median != o.median)
 					return false;
-				return id == o.id;
+				return this->id == o.id;
 			}
 		};
-		
-		using SliceRefRange = std::array<typename std::vector<Slice>::const_iterator, 2>;
-		
 		class SliceValue {
 		public:
-			const Slice* pSlice;
-			Comparator comp;
+			const SliceBase* pSlice;
 			size_t iRead;
 			
 			SliceValue() = default;
-			SliceValue(const Slice* pSlice, Comparator comp) : 
-				pSlice(pSlice), iRead(0), comp(comp) {}
-
+			SliceValue(const SliceBase* pSlice) : pSlice(pSlice), iRead(0) {}
+			
 			IterVal get() const { return pSlice->get(iRead); }
 			
-			bool operator<(const SliceValue& o) const { return comp(get(), o.get()); }
+			bool operator<(const SliceValue& o) const { return Comparator()(get(), o.get()); }
 			bool operator==(const SliceValue& o) const { return get() == o.get(); }
 		};
 	private:
 		IterPair data;
-		Comparator comp;
 		
 		set_t<Slice> setSlices;
-		
-		omp_lock_t om_writeLock;
 	public:
+		BTreeSort(Iter begin, Iter end);
 		BTreeSort(Iter begin, Iter end, Comparator comp);
-		~BTreeSort();
+		virtual ~BTreeSort();
 		
 		void Sort();
 	private:
 		std::vector<std::array<size_t, 3>> _GenerateDivisions(size_t count, size_t divs);
 		
 		void _SortBucket(size_t id, IterPair range);
-		void _ShuffleSlices(Iter dest, const std::vector<Slice>& slices);
-		void _MultiwayHeap(Iter dest, SliceRefRange slices);
+		void _ShuffleSlices(Iter dest, const std::vector<const Slice*>& slices);
+		void _MultiwayHeap(Iter dest, const std::vector<SliceBase>& slices);
 	};
 
 	// ------------------------------------------------------------------------------
@@ -175,18 +174,16 @@ namespace btreesort {
 #define DEF_BTreeSort BTreeSort<Iter, Comparator>::
 
 	TEMPL inline DEF_BTreeSort 
-	BTreeSort(Iter begin, Iter end, Comparator comp) :
-		data({ begin, end }), comp(comp) 
+	BTreeSort(Iter begin, Iter end) : 
+		data({ begin, end }) 
 	{
 		omp_set_dynamic(false);
 		omp_set_num_threads(Settings::get().nProcessors);
-		
-		omp_init_lock(&om_writeLock);
 	}
-	TEMPL inline DEF_BTreeSort ~BTreeSort()
-	{
-		omp_destroy_lock(&om_writeLock);
-	}
+	TEMPL inline DEF_BTreeSort
+	BTreeSort(Iter begin, Iter end, Comparator comp) :
+		BTreeSort(begin, end) {}
+	TEMPL inline DEF_BTreeSort ~BTreeSort() {}
 	
 	TEMPL void DEF_BTreeSort Sort()
 	{
@@ -198,42 +195,26 @@ namespace btreesort {
 		
 		// If too few data, just use normal sorting
 		if (dataCount < Settings::get().nParallelCutoff) {
-			std::sort(itrBegin, itrEnd, comp);
+			std::sort(itrBegin, itrEnd, Comparator());
 		}
 		else {
 			auto buckets = _GenerateDivisions(dataCount, nProcessors);
-
+			
 #pragma omp parallel for
 			for (auto& [i, begin, end] : buckets) {
 				_SortBucket(i, { itrBegin + begin, itrBegin + end });
 			}
 			
 			{
-				std::vector<IterVal> dataNew;
-				dataNew.reserve(dataCount);
-				
-				// Load slices from min to max into the new data
-				
-				std::vector<Slice> slicesSorted;
+				std::vector<const Slice*> slicesSorted;
 				slicesSorted.reserve(setSlices.size());
 				
-				{
-					size_t i = 0;
-					for (const Slice& s : setSlices) {
-						auto before = dataNew.end();
-						
-						dataNew.insert(dataNew.end(), s.range[0], s.range[1]);
-						
-						Slice ns(s.id, { before, dataNew.end() }, comp);
-						slicesSorted.push_back(std::move(ns));
-						
-						++i;
-					}
+				for (const Slice& s : setSlices) {
+					slicesSorted.push_back(&s);
 				}
 				
 				_ShuffleSlices(itrBegin, slicesSorted);
-				
-				bs_InsertionSort(itrBegin, itrEnd, comp);
+				bs_InsertionSort(itrBegin, itrEnd, Comparator());
 				
 				/* for (size_t i = 0; i < dataCount; ++i) {
 					*(itrBegin + i) = dataNew[i];
@@ -263,7 +244,7 @@ namespace btreesort {
 		size_t count = std::distance(itrBegin, itrEnd);
 		
 		size_t heapSize = Settings::get().nMaxHeapSize;
-		bs_QuickSort<false>(itrBegin, itrEnd, comp, heapSize);
+		bs_QuickSort<false>(itrBegin, itrEnd, Comparator(), heapSize);
 
 		size_t nSlices = count / heapSize;
 		if (nSlices < Settings::get().nSubBuckets)
@@ -271,47 +252,47 @@ namespace btreesort {
 
 		auto partitions = _GenerateDivisions(std::distance(itrBegin, itrEnd), nSlices);
 		
-		// Partition slices
+#pragma omp critical
 		{
-			OmpLock lock(om_writeLock); // Lock setSlices for writing
+			// Partition slices
 			
 			for (auto& [i, begin, end] : partitions) {
-				Slice s(setSlices.size(), { itrBegin + begin, itrBegin + end }, comp);
+				Slice s(setSlices.size(), { itrBegin + begin, itrBegin + end });
 				setSlices.insert(std::move(s));
 			}
 		}
 	}
-	TEMPL void DEF_BTreeSort _ShuffleSlices(Iter dest, const std::vector<Slice>& slices)
+	TEMPL void DEF_BTreeSort _ShuffleSlices(Iter dest, 
+		const std::vector<const Slice*>& slicesSorted)
 	{
 		size_t nProcessors = Settings::get().nProcessors;
-		size_t nSlices = Settings::get().nSubBuckets;
 		
 		{
 			struct _ShufParam {
 				size_t index;
-				SliceRefRange slices;
+				std::array<size_t, 2> range;
 				size_t placement;
 				size_t count;
 			};
 			std::vector<_ShufParam> shufParams(nProcessors);
 			
-			auto sliceDivs = _GenerateDivisions(slices.size(), shufParams.size());
+			auto sliceDivs = _GenerateDivisions(slicesSorted.size(), shufParams.size());
 			
 			{
 				size_t placement = 0;
 				for (auto& [i, iBegin, iEnd] : sliceDivs) {
-					auto itrSliceBeg = slices.begin() + iBegin;
-					auto itrSliceEnd = slices.begin() + iEnd;
+					auto itrSliceBeg = slicesSorted.begin() + iBegin;
+					auto itrSliceEnd = slicesSorted.begin() + iEnd;
 					
 					// Sum the amount of all data in this slice range
 					size_t count = 0;
 					for (auto itr = itrSliceBeg; itr != itrSliceEnd; ++itr) {
-						count += (*itr).size();
+						count += (*itr)->size();
 					}
 					
 					shufParams[i] = _ShufParam {
 						i,
-						{ itrSliceBeg, itrSliceEnd },
+						{ iBegin, iEnd },
 						placement,
 						count,
 					};
@@ -320,19 +301,35 @@ namespace btreesort {
 			}
 
 #pragma omp parallel for
-			for (auto& sp : shufParams) {
-				_MultiwayHeap(dest + sp.placement, sp.slices);
+			for (const _ShufParam& sp : shufParams) {
+				std::vector<IterVal> tmp;
+				tmp.reserve(sp.count);
+				
+				std::vector<SliceBase> newSlices;
+				
+				for (size_t i = sp.range[0]; i != sp.range[1]; ++i) {
+					const Slice* s = *(slicesSorted.begin() + i);
+					
+					// Copy data from original slice into temp array
+					auto before = tmp.insert(tmp.end(), s->range[0], s->range[1]);
+					
+					// Copy slice info, but change the range
+					SliceBase ns = *(const SliceBase*)s;
+					ns.range = { before, tmp.end() };
+					newSlices.push_back(std::move(ns));
+				}
+				
+				_MultiwayHeap(dest + sp.placement, newSlices);
 			}
 		}
 	}
-	TEMPL void DEF_BTreeSort _MultiwayHeap(Iter dest, SliceRefRange slices)
+	TEMPL void DEF_BTreeSort _MultiwayHeap(Iter dest, const std::vector<SliceBase>& slices)
 	{
 		MultiwaySet<SliceValue, std::less<SliceValue>> heap;
 		
-		for (auto itr = slices[0]; itr != slices[1]; ++itr) {
-			const Slice* s = &*itr;
-			if (s->size() > 0) {
-				heap.Push(SliceValue(s, comp));
+		for (auto& s : slices) {
+			if (s.size() > 0) {
+				heap.Push(SliceValue(&s));
 			}
 		}
 		
