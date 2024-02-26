@@ -46,13 +46,13 @@ namespace btreesort {
 	{
 		auto next = last;
 		--next;
-		
-		while (val < *next) {
+
+		while (comp(val, *next)) {
 			*last = *next;
 			last = next;
 			--next;
 		}
-		
+
 		*last = val;
 	}
 	template<typename Iter, typename Comparator>
