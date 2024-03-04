@@ -215,10 +215,6 @@ namespace btreesort {
 				
 				_ShuffleSlices(itrBegin, slicesSorted);
 				bs_InsertionSort(itrBegin, itrEnd, Comparator());
-				
-				/* for (size_t i = 0; i < dataCount; ++i) {
-					*(itrBegin + i) = dataNew[i];
-				} */
 			}
 		}
 	}
@@ -245,11 +241,11 @@ namespace btreesort {
 		
 		size_t heapSize = Settings::get().nMaxHeapSize;
 		bs_QuickSort<false>(itrBegin, itrEnd, Comparator(), heapSize);
-
+		
 		size_t nSlices = count / heapSize;
 		if (nSlices < Settings::get().nSubBuckets)
 			nSlices = Settings::get().nSubBuckets;
-
+		
 		auto partitions = _GenerateDivisions(std::distance(itrBegin, itrEnd), nSlices);
 		
 #pragma omp critical
@@ -270,7 +266,12 @@ namespace btreesort {
 		{
 			struct _ShufParam {
 				size_t index;
-				std::array<size_t, 2> range;
+				
+				std::vector<IterVal> tmp;
+				std::vector<SliceBase> newSlices;
+				
+				std::array<size_t, 2> srcRange;
+
 				size_t placement;
 				size_t count;
 			};
@@ -290,36 +291,43 @@ namespace btreesort {
 						count += (*itr)->size();
 					}
 					
-					shufParams[i] = _ShufParam {
-						i,
-						{ iBegin, iEnd },
-						placement,
-						count,
-					};
+					_ShufParam sp {};
+					sp.index = i;
+					sp.srcRange = { iBegin, iEnd };
+					sp.placement = placement;
+					sp.count = count;
+					
+					shufParams[i] = std::move(sp);
 					placement += count;
 				}
 			}
 
+//#pragma omp parallel
+			{
 #pragma omp parallel for
-			for (const _ShufParam& sp : shufParams) {
-				std::vector<IterVal> tmp;
-				tmp.reserve(sp.count);
-				
-				std::vector<SliceBase> newSlices;
-				
-				for (size_t i = sp.range[0]; i != sp.range[1]; ++i) {
-					const Slice* s = *(slicesSorted.begin() + i);
+				for (_ShufParam& sp : shufParams) {
+					sp.tmp.reserve(sp.count);
 					
-					// Copy data from original slice into temp array
-					auto before = tmp.insert(tmp.end(), s->range[0], s->range[1]);
-					
-					// Copy slice info, but change the range
-					SliceBase ns = *(const SliceBase*)s;
-					ns.range = { before, tmp.end() };
-					newSlices.push_back(std::move(ns));
+					for (auto i = sp.srcRange[0]; i != sp.srcRange[1]; ++i) {
+						const Slice* s = slicesSorted[i];
+						
+						// Copy data from original slice into temp array
+						auto before = sp.tmp.insert(sp.tmp.end(), 
+							s->range[0], s->range[1]);
+						
+						// Copy slice info, but change the range
+						SliceBase ns(s->id, { before, sp.tmp.end() });
+						sp.newSlices.push_back(std::move(ns));
+					}
 				}
-				
-				_MultiwayHeap(dest + sp.placement, newSlices);
+
+//#pragma omp barrier
+
+#pragma omp parallel for
+				for (const _ShufParam& sp : shufParams) {
+					_MultiwayHeap(dest + sp.placement, sp.newSlices);
+					//std::copy(sp.tmp.begin(), sp.tmp.end(), dest + sp.placement);
+				}
 			}
 		}
 	}
@@ -332,7 +340,7 @@ namespace btreesort {
 				heap.Push(SliceValue(&s));
 			}
 		}
-		
+
 		while (!heap.Empty()) {
 			SliceValue front = std::move(heap.Peek());
 			
@@ -360,7 +368,7 @@ namespace btreesort {
 		nProcessors = omp_get_num_procs();
 		nSubBuckets = nProcessors;
 		
-		/* nProcessors = 8;
+		/* nProcessors = 4;
 		nSubBuckets = 4; */
 		
 		nMinPerSlice = 4;
