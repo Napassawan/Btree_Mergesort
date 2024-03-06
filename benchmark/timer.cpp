@@ -101,24 +101,20 @@ void PerformanceTimer::Start()
 		throw MyException("Timer already running");
 	bRunning_ = true;
 	
-	stats_.clear();
-	
-	_AddStat(_CollectCpuStat());
+	statBegin_ = _CollectCpuStat();
 }
-void PerformanceTimer::Stop()
+PerformanceTimer::Stat PerformanceTimer::Stop()
 {
 	if (!bRunning_)
 		throw MyException("Timer not started yet");
 	bRunning_ = false;
-	
-	_AddStat(_CollectCpuStat());
+
+	auto statNow = _CollectCpuStat();
+	return (statNow - statBegin_);
 }
-void PerformanceTimer::AddDataPoint()
+void PerformanceTimer::AddDataPoint(const Stat& st)
 {
-	if (!bRunning_)
-		throw MyException("Timer not started yet");
-	
-	_AddStat(_CollectCpuStat());
+	statsSaved_.push_back(std::move(st));
 }
 
 void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose) const
@@ -156,29 +152,43 @@ void PerformanceTimer::Report(std::ostream& out, bool compact, bool verbose) con
 		for (size_t i = 0; i < stat.cores_.size(); ++i)
 			_Print(i, stat.cores_[i]);
 	};
-
-	const auto& begin = stats_.front();
-	const auto& end = stats_.back();
 	
 	if (verbose)
 		out << "Total====================\n";
-	_PrintStatAll(end - begin);
+	{
+		Stat stSum{};	// zero-initialize
+		stSum.cores_.resize(countCPU_);
+
+		for (const auto& st : statsSaved_) {
+			stSum = std::move(stSum + st);
+		}
+
+		_PrintStatAll(stSum);
+	}
 	
 	if (verbose) {
 		// Also print each data point
-		
-		// Don't print the first and the last
-		for (size_t i = 1; i < stats_.size() - 1; ++i) {
+
+		size_t i = 1;
+		for (const auto& st : statsSaved_) {
 			out << "\nRun" << i << "===================\n";
-			
-			// Print diff since the previous point
-			_PrintStatAll(stats_[i] - stats_[i - 1]);
+			_PrintStatAll(st);
+			++i;
 		}
 	}
 	
 	out << std::endl;
 }
 
+PerformanceTimer::CpuData PerformanceTimer::CpuData::operator+(const CpuData& obj) const
+{
+	return CpuData {
+		total + obj.total,
+		user + obj.user,
+		sys + obj.sys,
+		idle + obj.idle,
+	};
+}
 PerformanceTimer::CpuData PerformanceTimer::CpuData::operator-(const CpuData& obj) const
 {
 	return CpuData {
@@ -189,19 +199,33 @@ PerformanceTimer::CpuData PerformanceTimer::CpuData::operator-(const CpuData& ob
 	};
 }
 
+PerformanceTimer::Stat PerformanceTimer::Stat::operator+(const Stat& obj) const
+{
+	Stat res;
+	res.total_ = total_ + obj.total_;
+
+	size_t nCores = cores_.size();
+	if (nCores != obj.cores_.size())
+		throw MyException("Core data count mismatch (operator+)");
+
+	res.cores_.resize(nCores);
+	for (size_t i = 0; i < nCores; ++i)
+		res.cores_[i] = cores_[i] + obj.cores_[i];
+	
+	return res;
+}
 PerformanceTimer::Stat PerformanceTimer::Stat::operator-(const Stat& obj) const
 {
 	Stat res;
 	res.total_ = total_ - obj.total_;
-
+	
 	size_t nCores = cores_.size();
-
 	if (nCores != obj.cores_.size())
-		throw MyException("Core data count mismatch");
-
+		throw MyException("Core data count mismatch (operator-)");
+	
 	res.cores_.resize(nCores);
 	for (size_t i = 0; i < nCores; ++i)
 		res.cores_[i] = cores_[i] - obj.cores_[i];
-
+	
 	return res;
 }

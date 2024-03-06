@@ -34,31 +34,34 @@ class PerformanceTimer {
 		uint64_t sys;
 		uint64_t idle;
 
+		CpuData operator+(const CpuData& obj) const;
 		CpuData operator-(const CpuData& obj) const;
 	};
 	struct Stat {
 		CpuData total_;
 		std::vector<CpuData> cores_;
 
+		Stat operator+(const Stat& obj) const;
 		Stat operator-(const Stat& obj) const;
 	};
 
 	uint32_t countCPU_;
 	
-	std::vector<Stat> stats_;
+	std::vector<Stat> statsSaved_;
+
+	Stat statBegin_;
 	bool bRunning_;
 
 	Stat _CollectCpuStat();
-	void _AddStat(const Stat& stat) { stats_.push_back(stat); }
 public:
 	PerformanceTimer();
 	~PerformanceTimer();
 
 	void Start();
-	void Stop();
-
-	void AddDataPoint();
+	Stat Stop();
 	
+	void AddDataPoint(const Stat& st);
+
 	void Report(std::ostream& out, bool compact = false, bool verbose = false) const;
 };
 

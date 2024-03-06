@@ -5,6 +5,7 @@
 #include <execution>
 #include <algorithm>
 
+#include <malloc.h>
 #include <parallel/algorithm>
 #include <omp.h>
 
@@ -73,8 +74,8 @@ int main(int argc, char** argv)
 
 		if (optParse.OptionExists("-m")) {
 			if (auto opt = optParse.GetOptionParam("-m")) {
-				bCompact = strchr(opt->get().c_str(), 'c');
-				bVerbose = strchr(opt->get().c_str(), 'v');
+				bCompact = opt->get().find('c') != std::string::npos;
+				bVerbose = opt->get().find('v') != std::string::npos;
 			}
 			bReport = true;
 		}
@@ -150,43 +151,28 @@ void Work(DataType type, SortType sort, const FileReader& file)
 }
 template<typename T> void WorkGeneric(SortType sort, const FileReader& file)
 {
-	vector<T> data = file.ReadData<T>();
-
-	printf("Read %zu data from file (%zu bytes)\n", data.size(), data.size() * sizeof(T));
-	printf("Repeat: %zu\n", runCount);
-
-	{
-		// Run once to reduce the effects of the cache on the first real run
-		PerformSort(sort, data);
+	for (size_t i = 0; i < runCount; ++i) {
+		vector<T> data = file.ReadData<T>();
 		
+		if (i == 0) {
+			printf("Read %zu data from file (%zu bytes)\n", 
+				data.size(), data.size() * sizeof(T));
+			printf("Repeat: %zu\n", runCount);
+		}
+
 		timer.Start();
 		
-		//std::cout << "Run ";
-
-		for (size_t i = 0; i < runCount; ++i) {
-			/* if (i % 100 == 0) {
-				if (i != 0) {
-					std::cout << ", ";
-				}
-			}
-			std::cout << i; */
-			
-			PerformSort(sort, data);
-
-			timer.AddDataPoint();
-		}
-		std::cout << "\n";
+		PerformSort(sort, data);
 		
-		timer.Stop();
+		auto stat = timer.Stop();
+		
+		timer.AddDataPoint(stat);
+
+		if (i == 0) {
+			VerifySorted(data);
+		}
 	}
-
-	/* for (const T& i : data) {
-		std::cout << i << " ";
-	} */
-
-	VerifySorted(data);
-
-	printf("\n");
+	std::cout << "\n";
 }
 
 template<typename T> void PerformSort(SortType sort, vector<T>& res)
