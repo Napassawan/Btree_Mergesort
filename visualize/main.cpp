@@ -67,11 +67,13 @@ int main(int argc, char** argv) {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 	
-	GLFWwindow* window = glfwCreateWindow(1600, 900, "msort visualize", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(1800, 1100, "msort visualize", nullptr, nullptr);
 	if (window == nullptr)
 		return 1;
 	glfwMakeContextCurrent(window);
 	glfwSwapInterval(1);
+
+	glfwSetWindowPos(window, 100, 100);
 	
 	glfwSetKeyCallback(window, glfw_key_callback);
 	
@@ -110,7 +112,7 @@ int main(int argc, char** argv) {
 
 		{
 			ImGui::SetNextWindowSize(ImVec2(1700, 900), ImGuiCond_Appearing);
-
+			
 			ImGui::Begin("Data");
 
 			if (ImGui::Button("Toggle")) display = !display;
